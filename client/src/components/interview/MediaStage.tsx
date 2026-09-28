@@ -406,32 +406,43 @@ export function useCamera(): CameraState {
  * from frame brightness and motion only, and are presented as practice signals — never as claims
  * about personality, honesty or mental state.
  */
-export function VideoStage({
-  camera,
-  onObservations,
-  interviewerSpeaking,
-}: {
-  camera: CameraState
-  onObservations?: (observations: { camera_engagement: number; posture_consistency: number; movement_level: number }) => void
-  interviewerSpeaking?: boolean
-}) {
-  const videoRef = useRef<HTMLVideoElement | null>(null)
-  const [observations, setObservations] = useState({ camera_engagement: 0, posture_consistency: 0, movement_level: 0 })
+export interface DeliveryObservations {
+  camera_engagement: number
+  posture_consistency: number
+  movement_level: number
+}
+
+/**
+ * On-device delivery observations: average frame brightness and inter-frame motion, sampled from the
+ * candidate's own camera. Nothing is uploaded as video, and nothing here is used to judge personality,
+ * honesty or suitability — the numbers are shown to the candidate as practice signals.
+ */
+export function useDeliveryObservations(
+  camera: CameraState,
+  onObservations?: (observations: DeliveryObservations) => void,
+): DeliveryObservations {
+  const [observations, setObservations] = useState<DeliveryObservations>({ camera_engagement: 0, posture_consistency: 0, movement_level: 0 })
   const lastFrameRef = useRef<Uint8ClampedArray | null>(null)
   const samplesRef = useRef<{ engagement: number[]; movement: number[] }>({ engagement: [], movement: [] })
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  // Sampling happens against a private, unattached video element so the hook never depends on where
+  // (or whether) a preview is rendered on screen.
+  const probeRef = useRef<HTMLVideoElement | null>(null)
 
   useEffect(() => {
-    const element = videoRef.current
-    if (!element) return
-    element.srcObject = camera.stream
-    if (camera.stream) void element.play().catch(() => undefined)
+    if (!camera.stream) return
+    const probe = probeRef.current ?? document.createElement('video')
+    probeRef.current = probe
+    probe.muted = true
+    probe.playsInline = true
+    probe.srcObject = camera.stream
+    void probe.play().catch(() => undefined)
   }, [camera.stream])
 
   useEffect(() => {
     if (!camera.stream) return
     const interval = window.setInterval(() => {
-      const video = videoRef.current
+      const video = probeRef.current
       if (!video || video.videoWidth === 0) return
       const canvas = canvasRef.current ?? document.createElement('canvas')
       canvasRef.current = canvas
@@ -481,6 +492,28 @@ export function VideoStage({
 
     return () => window.clearInterval(interval)
   }, [camera.stream, onObservations])
+
+  return observations
+}
+
+export function VideoStage({
+  camera,
+  onObservations,
+  interviewerSpeaking,
+}: {
+  camera: CameraState
+  onObservations?: (observations: DeliveryObservations) => void
+  interviewerSpeaking?: boolean
+}) {
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const observations = useDeliveryObservations(camera, onObservations)
+
+  useEffect(() => {
+    const element = videoRef.current
+    if (!element) return
+    element.srcObject = camera.stream
+    if (camera.stream) void element.play().catch(() => undefined)
+  }, [camera.stream])
 
   return (
     <div className="space-y-3">

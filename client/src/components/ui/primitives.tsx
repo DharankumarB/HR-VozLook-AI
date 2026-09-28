@@ -130,13 +130,13 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<H
 
 export const Select = forwardRef<
   HTMLSelectElement,
-  SelectHTMLAttributes<HTMLSelectElement> & { options?: { value: string; label: string }[] }
+  SelectHTMLAttributes<HTMLSelectElement> & { options?: { value: string; label: string; disabled?: boolean }[] }
 >(function Select({ className = '', children, options, ...rest }, ref) {
   return (
     <div className="relative">
       <select ref={ref} className={`input-base appearance-none pr-10 ${className}`} {...rest}>
         {options?.map((option) => (
-          <option key={option.value} value={option.value}>
+          <option key={option.value} value={option.value} disabled={option.disabled}>
             {option.label}
           </option>
         ))}

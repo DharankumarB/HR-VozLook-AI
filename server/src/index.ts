@@ -79,7 +79,7 @@ export async function createApp() {
   } else {
     app.get('/', (_req, res) => {
       res.json({
-        product: 'VozLook InterviewAI',
+        product: 'VozHireQ',
         message: 'API is running. Start the Vite dev server for the UI (npm run dev).',
         data_mode: store.kind,
         docs: '/api/meta',
@@ -133,7 +133,7 @@ export async function createApp() {
 async function main() {
   const app = await createApp()
   const server = app.listen(env.port, env.host, () => {
-    console.log(`[vozlook] VozLook InterviewAI API listening on http://${env.host}:${env.port}`)
+    console.log(`[vozhireq] VozHireQ API listening on http://${env.host}:${env.port}`)
   })
 
   const shutdown = async (signal: string) => {

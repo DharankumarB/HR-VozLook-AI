@@ -1,6 +1,8 @@
 import { Loader2 } from 'lucide-react'
 import { Suspense, lazy, type ReactElement } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { AdminLayout } from './components/admin/AdminLayout'
+import { RequireAdmin } from './components/admin/RequireAdmin'
 import { useAuth } from './state/AuthContext'
 
 const Landing = lazy(() => import('./pages/Landing'))
@@ -21,8 +23,17 @@ const Coach = lazy(() => import('./pages/Coach'))
 const Profile = lazy(() => import('./pages/Profile'))
 const SettingsPage = lazy(() => import('./pages/Settings'))
 const NotFound = lazy(() => import('./pages/NotFound'))
+const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard'))
+const AdminUsers = lazy(() => import('./pages/admin/AdminUsers'))
+const AdminUserDetail = lazy(() => import('./pages/admin/AdminUserDetail'))
+const AdminInterviews = lazy(() => import('./pages/admin/AdminInterviews'))
+const AdminInterviewDetail = lazy(() => import('./pages/admin/AdminInterviewDetail'))
+const AdminReports = lazy(() => import('./pages/admin/AdminReports'))
+const AdminAnalytics = lazy(() => import('./pages/admin/AdminAnalytics'))
+const AdminSystem = lazy(() => import('./pages/admin/AdminSystem'))
+const AdminSettings = lazy(() => import('./pages/admin/AdminSettings'))
 
-function Splash({ label = 'Loading VozLook InterviewAI…' }: { label?: string }) {
+function Splash({ label = 'Loading VozHireQ…' }: { label?: string }) {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-4 px-6 text-center">
       <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-accent-sheen shadow-glow">
@@ -54,9 +65,10 @@ function Protected({ children, allowWithoutOnboarding = false }: { children: Rea
 
 /** Keeps signed-in users away from the auth screens. */
 function PublicOnly({ children }: { children: ReactElement }) {
-  const { user, profile, initialising } = useAuth()
+  const { user, profile, initialising, isAdmin } = useAuth()
   if (initialising) return <Splash />
   if (!user) return children
+  if (isAdmin) return <Navigate to="/admin" replace />
   return <Navigate to={profile?.onboarding_completed ? '/dashboard' : '/onboarding'} replace />
 }
 
@@ -195,6 +207,26 @@ export default function App() {
             </Protected>
           }
         />
+        {/* Administrator console: a separate premium layout, gated by a live server role check. */}
+        <Route
+          path="/admin"
+          element={
+            <RequireAdmin>
+              <AdminLayout />
+            </RequireAdmin>
+          }
+        >
+          <Route index element={<AdminDashboard />} />
+          <Route path="users" element={<AdminUsers />} />
+          <Route path="users/:id" element={<AdminUserDetail />} />
+          <Route path="interviews" element={<AdminInterviews />} />
+          <Route path="interviews/:id" element={<AdminInterviewDetail />} />
+          <Route path="reports" element={<AdminReports />} />
+          <Route path="analytics" element={<AdminAnalytics />} />
+          <Route path="system" element={<AdminSystem />} />
+          <Route path="settings" element={<AdminSettings />} />
+        </Route>
+
         <Route path="*" element={<NotFound />} />
       </Routes>
     </Suspense>

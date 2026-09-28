@@ -9,12 +9,12 @@ export interface SessionClaims {
 }
 
 export function signSession(claims: SessionClaims): string {
-  return jwt.sign(claims, env.jwtSecret, { expiresIn: `${env.sessionDays}d`, issuer: 'vozlook-interviewai' })
+  return jwt.sign(claims, env.jwtSecret, { expiresIn: `${env.sessionDays}d`, issuer: 'vozhireq' })
 }
 
 export function verifySession(token: string): SessionClaims | null {
   try {
-    const decoded = jwt.verify(token, env.jwtSecret, { issuer: 'vozlook-interviewai' })
+    const decoded = jwt.verify(token, env.jwtSecret, { issuer: 'vozhireq' })
     if (!decoded || typeof decoded !== 'object') return null
     const { sub, email, provider } = decoded as jwt.JwtPayload & Partial<SessionClaims>
     if (!sub || !email) return null

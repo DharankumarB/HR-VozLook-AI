@@ -1,11 +1,39 @@
-import type { DifficultySetting, InterviewMode, InterviewType } from './types'
+import type { DifficultySetting, InterviewMode, InterviewType, LanguageCode, PersonaId } from './types'
 
 export const BRAND = {
   vendor: 'VozLook Studios',
-  product: 'VozLook InterviewAI',
-  tagline: 'Practice. Perform. Improve.',
-  studioLine: 'AI × Design × Innovation',
+  product: 'VozHireQ',
+  productDescription: 'AI-Powered Interview Intelligence',
+  tagline: 'Practice. Perform. Grow.',
+  studioLine: 'by VozLook Studios',
+  supportEmail: 'vozlookstudios@gmail.com',
+  adminSurface: '/admin',
 }
+
+/**
+ * Languages. English is the only language enabled today; the rest are architecture-ready so more can
+ * be switched on server-side (see server/src/ai/languages.ts) without a client release.
+ */
+export const LANGUAGES: { code: LanguageCode; label: string; native: string; enabled: boolean }[] = [
+  { code: 'en', label: 'English', native: 'English', enabled: true },
+  { code: 'hi', label: 'Hindi', native: 'हिन्दी', enabled: false },
+  { code: 'ta', label: 'Tamil', native: 'தமிழ்', enabled: false },
+  { code: 'te', label: 'Telugu', native: 'తెలుగు', enabled: false },
+  { code: 'es', label: 'Spanish', native: 'Español', enabled: false },
+  { code: 'de', label: 'German', native: 'Deutsch', enabled: false },
+  { code: 'fr', label: 'French', native: 'Français', enabled: false },
+]
+
+export const PERSONAS: { id: PersonaId; label: string; description: string }[] = [
+  { id: 'professional', label: 'Professional AI Interviewer', description: 'Balanced corporate interviewer — the VozHireQ default' },
+  { id: 'technical', label: 'Technical Interviewer', description: 'Senior engineer tone: depth, trade-offs and failure modes' },
+  { id: 'hr', label: 'HR Interviewer', description: 'Motivation, teamwork, career goals and culture fit' },
+  { id: 'friendly', label: 'Friendly Interviewer', description: 'Encouraging tone for a first practice run' },
+  { id: 'strict', label: 'Strict Technical', description: 'Hard pressure, precise answers — senior loop practice' },
+]
+
+export const AVATAR_DISCLAIMER =
+  'The AI interviewer is an animated assistant. Its mouth moves in time with the spoken question rather than reproducing true lip-sync.'
 
 export const INTERVIEW_TYPES: { value: InterviewType; label: string; description: string; estimate: number }[] = [
   { value: 'technical', label: 'Technical', description: 'Skills, systems and problem solving in your target role', estimate: 9 },

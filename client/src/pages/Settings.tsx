@@ -2,6 +2,7 @@ import { AlertTriangle, Bell, Database, KeyRound, LogOut, Save, Server, ShieldCh
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AppShell } from '../components/layout/AppShell'
+import { LanguageSelector } from '../components/settings/LanguageSelector'
 import { Badge, Button, Card, ErrorState, Field, Input, LoadingState, Modal, SectionHeader } from '../components/ui/primitives'
 import { ApiError, api } from '../lib/api'
 import type { MetaResponse } from '../lib/types'
@@ -204,10 +205,12 @@ export default function Settings() {
             </p>
           </Card>
 
+          <LanguageSelector />
+
           <Card>
             <SectionHeader title="Appearance & accessibility" icon={<Sparkles className="h-4 w-4 text-accent" aria-hidden />} />
             <p className="text-xs leading-relaxed text-ink-400">
-              VozLook InterviewAI runs in a dark theme tuned for long practice sessions: high-contrast text, visible focus rings, labelled controls and
+              VozHireQ runs in a dark theme tuned for long practice sessions: high-contrast text, visible focus rings, labelled controls and
               reduced-motion friendly animations.
             </p>
             <ul className="mt-3 space-y-2 text-2xs text-ink-500">

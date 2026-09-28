@@ -4,8 +4,8 @@ import { Link, useNavigate } from 'react-router-dom'
 import { AppShell } from '../components/layout/AppShell'
 import { Button, Card, ErrorState, Field, Input, SegmentedControl, SectionHeader, Select } from '../components/ui/primitives'
 import { ApiError, api } from '../lib/api'
-import { DIFFICULTIES, INTERVIEW_MODES, INTERVIEW_TYPES, QUESTION_COUNTS } from '../lib/constants'
-import type { DifficultySetting, InterviewMode, InterviewType, JobRecord, ResumeRecord } from '../lib/types'
+import { DIFFICULTIES, INTERVIEW_MODES, INTERVIEW_TYPES, LANGUAGES, PERSONAS, QUESTION_COUNTS } from '../lib/constants'
+import type { DifficultySetting, InterviewMode, InterviewType, JobRecord, LanguageCode, PersonaId, ResumeRecord } from '../lib/types'
 import { useAuth } from '../state/AuthContext'
 import { useToast } from '../state/ToastContext'
 
@@ -36,12 +36,15 @@ export default function InterviewSetup() {
     company: '',
     focus_areas: '',
     adaptive: true,
+    persona: 'professional' as PersonaId,
+    language: ((profile?.preferred_language as LanguageCode) ?? 'en') as LanguageCode,
   })
 
   useEffect(() => {
     if (profile?.preferred_mode) setConfig((current) => ({ ...current, interview_mode: profile.preferred_mode as InterviewMode }))
     if (profile?.target_role) setConfig((current) => ({ ...current, job_role: profile.target_role! }))
     if (profile?.company) setConfig((current) => ({ ...current, company: profile.company! }))
+    if (profile?.preferred_language) setConfig((current) => ({ ...current, language: profile.preferred_language as LanguageCode }))
   }, [profile])
 
   useEffect(() => {
@@ -99,6 +102,8 @@ export default function InterviewSetup() {
         settings: {
           company: config.company.trim() || null,
           adaptive: config.adaptive,
+          persona: config.persona,
+          language: config.language,
           resume_id: resume.id,
           job_description_id: job?.id ?? null,
           focus_areas: config.focus_areas
@@ -167,6 +172,29 @@ export default function InterviewSetup() {
                 columns="grid-cols-3"
                 options={DIFFICULTIES.map((option) => ({ value: option.value, label: option.label, description: option.description }))}
               />
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="AI interviewer" htmlFor="persona" hint="Consistent for the whole session">
+                  <Select
+                    id="persona"
+                    value={config.persona}
+                    onChange={(event) => setConfig((current) => ({ ...current, persona: event.target.value as PersonaId }))}
+                    options={PERSONAS.map((persona) => ({ value: persona.id, label: persona.label }))}
+                  />
+                </Field>
+                <Field label="Interview language" htmlFor="language" hint="English only for now">
+                  <Select
+                    id="language"
+                    value={config.language}
+                    onChange={(event) => setConfig((current) => ({ ...current, language: event.target.value as LanguageCode }))}
+                    options={LANGUAGES.map((language) => ({
+                      value: language.code,
+                      label: `${language.label}${language.enabled ? '' : ' (coming soon)'}`,
+                      disabled: !language.enabled,
+                    }))}
+                  />
+                </Field>
+              </div>
 
               <SegmentedControl
                 label="Interview mode"

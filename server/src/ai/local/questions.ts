@@ -753,13 +753,24 @@ function focusAreaQuestion(ctx: QuestionContext, difficulty: Difficulty): Genera
 
 export function generateQuestionLocally(ctx: QuestionContext): GeneratedQuestion {
   const difficulty = effectiveDifficulty(ctx)
-  const type = pickType(ctx)
+  // The blueprint decides the type when the validation pipeline supplies one; otherwise rotate by index.
+  const blueprintType = ctx.blueprint?.target_type as QuestionType | undefined
+  const type = blueprintType && blueprintType !== 'follow_up' ? blueprintType : pickType(ctx)
+
+  // Anchors the blueprint selected (a named project, a role, a required skill) are tried first so the
+  // question matches the intent the pipeline validated against.
+  const anchoredCtx: QuestionContext = ctx.blueprint?.resume_anchors?.length
+    ? { ...ctx, focusAreas: [...(ctx.blueprint.resume_anchors ?? []), ...(ctx.focusAreas ?? [])] }
+    : ctx
 
   const order: (() => GeneratedQuestion | null)[] = []
-  if (ctx.focusAreas?.length && type !== 'hr') order.push(() => focusAreaQuestion(ctx, difficulty))
-  if (type === 'resume' || type === 'technical') order.push(() => resumeAnchored(ctx, difficulty))
-  if (type === 'technical') order.push(() => skillTechnicalQuestion(ctx, difficulty))
-  order.push(() => domainOrBankQuestion(ctx, difficulty, type))
+  if (ctx.blueprint?.must_cover_from_job?.length && type === 'technical') {
+    order.push(() => skillTechnicalQuestion({ ...anchoredCtx, focusAreas: ctx.blueprint!.must_cover_from_job }, difficulty))
+  }
+  if (ctx.focusAreas?.length && type !== 'hr') order.push(() => focusAreaQuestion(anchoredCtx, difficulty))
+  if (type === 'resume' || type === 'technical') order.push(() => resumeAnchored(anchoredCtx, difficulty))
+  if (type === 'technical') order.push(() => skillTechnicalQuestion(anchoredCtx, difficulty))
+  order.push(() => domainOrBankQuestion(anchoredCtx, difficulty, type))
   order.push(() => {
     // last resort: the broadest bank, ignoring de-duplication pressure from topics
     const relaxed = { ...ctx, askedQuestions: ctx.askedQuestions.slice(-2) }

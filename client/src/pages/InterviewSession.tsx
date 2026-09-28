@@ -27,16 +27,19 @@ import {
   speechRecognitionSupported,
   speechSynthesisSupported,
   useCamera,
-  useInterviewerVoice,
+  useDeliveryObservations,
   useSessionTimer,
   useVoiceRecorder,
 } from '../components/interview/MediaStage'
+import { ImmersiveRoom } from '../components/interview/ImmersiveRoom'
+import { useInterviewerSpeech, type AvatarState } from '../components/interview/AvatarInterviewer'
 import { CandidateBubble, InstantFeedback, ProgressRail, QuestionCard, TurnCounter } from '../components/interview/SessionPanels'
 import { Badge, Button, Card, EmptyState, ErrorState, LoadingState, Modal, ProgressBar } from '../components/ui/primitives'
 import { ApiError, api } from '../lib/api'
-import { METRIC_LABELS } from '../lib/constants'
+import { AVATAR_DISCLAIMER, METRIC_LABELS, PERSONAS } from '../lib/constants'
 import { badgeTone, formatDuration, scoreTone, toneClasses } from '../lib/format'
 import { useInterviewSession } from '../state/useInterviewSession'
+import { useMeta } from '../lib/meta'
 import { useToast } from '../state/ToastContext'
 
 const FILLERS = ['um', 'uh', 'erm', 'like', 'you know', 'basically', 'actually', 'sort of']
@@ -54,10 +57,11 @@ export default function InterviewSession() {
   const navigate = useNavigate()
   const toast = useToast()
   const session = useInterviewSession(id)
-  const voice = useInterviewerVoice()
+  const { meta } = useMeta()
   const camera = useCamera()
-  const recorder = useVoiceRecorder({ maxSeconds: 300 })
+  const [speakerEnabled, setSpeakerEnabled] = useState(true)
 
+  /* The avatar's voice: one speaker, cancelled before every utterance so audio can never overlap. */
   const [answerText, setAnswerText] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [feedback, setFeedback] = useState(true)
@@ -68,23 +72,44 @@ export default function InterviewSession() {
   const spokenQuestionId = useRef<string | null>(null)
   const timer = useSessionTimer(session.phase === 'ANSWERING' || session.phase === 'FOLLOW_UP' || session.phase === 'QUESTIONING')
 
+  /* The avatar's voice: one speaker, cancelled before every utterance so audio can never overlap. */
+  const speech = useInterviewerSpeech({ rate: 0.97, pitch: 1, lang: 'en-US' })
+  const recorder = useVoiceRecorder({ maxSeconds: 300 })
+  useDeliveryObservations(camera, setObservations)
+
   const interview = session.state?.interview
   const mode = interview?.interview_mode ?? 'text'
   const question = session.currentQuestion
+  const persona = useMemo(() => {
+    const stored = (session.state?.interview as unknown as { settings?: Record<string, unknown> } | undefined)?.settings?.persona
+    const match = PERSONAS.find((entry) => entry.id === stored)
+    return match?.id ?? PERSONAS[0]!.id
+  }, [session.state?.interview])
 
   /* Keep the typed answer in sync with the live transcript while recording. */
   useEffect(() => {
     if (mode !== 'text' && recorder.transcript) setAnswerText(recorder.transcript)
   }, [mode, recorder.transcript])
 
-  /* Speak each new question out loud in voice / video mode. */
+  /**
+   * Speak each new question once it is actually available.
+   *
+   * The avatar must never start talking before the question text exists, and it must never talk over a
+   * previous utterance — `speech.speak` cancels any in-flight audio first.
+   */
   useEffect(() => {
-    if (!question || mode === 'text') return
+    if (!question?.question || mode === 'text' || !speakerEnabled) return
     if (spokenQuestionId.current === question.id) return
     spokenQuestionId.current = question.id
-    voice.speak(question.question)
+    speech.speak(question.question)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [question?.id, mode])
+  }, [question?.id, mode, speakerEnabled])
+
+  const interviewLanguage = useMemo(() => {
+    const stored = (session.state?.interview as unknown as { settings?: Record<string, unknown> } | undefined)?.settings?.language
+    const code = typeof stored === 'string' ? stored : meta?.default_language ?? 'en'
+    return code
+  }, [session.state?.interview, meta?.default_language])
 
   /* Ask for the microphone once we know the interview mode. */
   useEffect(() => {
@@ -331,23 +356,102 @@ export default function InterviewSession() {
 
   const modeFallback = mode !== 'text' && (mode === 'voice' ? !speechRecognitionSupported : !speechRecognitionSupported && !camera.ready)
 
+  /* ------------------------------------------------------------------ */
+  /* Avatar interview room (voice + video modes)                         */
+  /* ------------------------------------------------------------------ */
+
+  if (mode !== 'text') {
+    // Derived from what is actually happening on screen: speaking, listening, thinking or idle.
+    const avatarState: AvatarState = speech.speaking
+      ? question?.is_follow_up
+        ? 'FOLLOW_UP'
+        : 'SPEAKING'
+      : session.phase === 'PROCESSING'
+        ? 'PROCESSING'
+        : recorder.recording
+          ? 'LISTENING'
+          : session.phase === 'QUESTIONING' || session.phase === 'PREPARING'
+            ? 'THINKING'
+            : 'IDLE'
+
+    return (
+      <ImmersiveRoom
+        question={question}
+        questionIndex={currentIndex - 1}
+        totalQuestions={planned}
+        timerSeconds={timer.seconds}
+        avatarState={avatarState}
+        avatarSpeaking={speech.speaking}
+        mouthOpenness={speech.mouthOpenness}
+        persona={persona}
+        camera={camera}
+        mode={mode}
+        answerText={answerText}
+        onAnswerTextChange={setAnswerText}
+        onSubmit={() => void submit()}
+        onSkip={() => void skip()}
+        onEnd={() => setEndOpen(true)}
+        onReplayQuestion={() => question && speakerEnabled && speech.speak(question.question)}
+        onToggleRecorder={() => void (recorder.recording ? recorder.stop() : recorder.start())}
+        onToggleSpeaker={() => {
+          if (speakerEnabled) speech.stop()
+          setSpeakerEnabled(!speakerEnabled)
+        }}
+        voiceSupported={speech.supported}
+        speakerEnabled={speakerEnabled}
+        recorder={recorder}
+        submitting={submitting || session.phase === 'PROCESSING'}
+        canSubmit={Boolean(question) && wordCount >= 4 && !recorder.recording}
+        notice={
+          camera.error
+            ? `${camera.error} You can continue with a voice interview — every question is still spoken and your microphone still records.`
+            : modeFallback
+              ? 'Speech recognition is unavailable in this browser, so type your answer in the panel above. The evaluation is identical.'
+              : uploadNotice
+        }
+        finished={false}
+        footer={
+          <>
+            <Modal
+              open={endOpen}
+              onClose={() => setEndOpen(false)}
+              title="End the interview now?"
+              description="Unanswered questions are recorded as gaps. You will still receive a full report for the answers you have already given."
+              footer={
+                <>
+                  <Button variant="ghost" onClick={() => setEndOpen(false)}>
+                    Keep going
+                  </Button>
+                  <Button variant="danger" onClick={() => void finishNow()}>
+                    End and generate report
+                  </Button>
+                </>
+              }
+            />
+            <p className="pb-2 text-center text-2xs text-ink-600">{AVATAR_DISCLAIMER}</p>
+          </>
+        }
+      />
+    )
+  }
+
   return (
     <AppShell
       title={interview.job_role}
       subtitle={`${interview.interview_type} interview · ${interview.difficulty} · ${mode} mode`}
       actions={
         <div className="flex items-center gap-2">
-          {mode !== 'text' && voice.supported ? (
+          {mode !== 'text' && speech.supported ? (
             <Button
               variant="ghost"
               size="sm"
               onClick={() => {
-                voice.setEnabled(!voice.enabled)
-                if (voice.enabled) voice.stop()
+                if (speakerEnabled) speech.stop()
+                setSpeakerEnabled(!speakerEnabled)
               }}
-              icon={voice.enabled ? <Volume2 className="h-4 w-4" aria-hidden /> : <VolumeX className="h-4 w-4" aria-hidden />}
+              icon={speakerEnabled ? <Volume2 className="h-4 w-4" aria-hidden /> : <VolumeX className="h-4 w-4" aria-hidden />}
             >
-              {voice.enabled ? 'Interviewer voice on' : 'Voice off'}
+              {speakerEnabled ? 'Interviewer voice on' : 'Voice off'}
             </Button>
           ) : null}
           <Button variant="ghost" size="sm" onClick={() => setEndOpen(true)} icon={<StopCircle className="h-4 w-4" aria-hidden />}>
@@ -406,10 +510,10 @@ export default function InterviewSession() {
               )}
             </AnimatePresence>
 
-            {mode !== 'text' && voice.supported ? (
+            {mode !== 'text' && speech.supported ? (
               <button
                 type="button"
-                onClick={() => question && voice.speak(question.question)}
+                onClick={() => question && speakerEnabled && speech.speak(question.question)}
                 className="mt-3 inline-flex items-center gap-1.5 text-2xs text-accent-soft hover:underline"
               >
                 <Headphones className="h-3 w-3" aria-hidden /> Read the question aloud again
@@ -433,7 +537,7 @@ export default function InterviewSession() {
               </p>
             ) : null}
 
-            {mode === 'voice' && speechRecognitionSupported ? (
+            {speechRecognitionSupported ? (
               <div className="mt-4">
                 <VoiceRecorder recorder={recorder} />
               </div>
@@ -504,10 +608,6 @@ export default function InterviewSession() {
 
         {/* Side rail */}
         <div className="space-y-5">
-          {mode === 'video' ? (
-            <VideoStage camera={camera} onObservations={setObservations} interviewerSpeaking={voice.speaking} />
-          ) : null}
-
           <Card>
             <div className="flex items-center justify-between gap-3">
               <p className="section-title">Live practice scores</p>
@@ -560,18 +660,6 @@ export default function InterviewSession() {
               </p>
             ) : null}
           </Card>
-
-          {mode === 'video' && camera.error ? (
-            <Card>
-              <p className="section-title flex items-center gap-2">
-                <MicOff className="h-3.5 w-3.5 text-warning" aria-hidden /> Camera unavailable
-              </p>
-              <p className="mt-2 text-xs leading-relaxed text-ink-400">{camera.error}</p>
-              <Button variant="secondary" size="sm" className="mt-3" onClick={() => void camera.start()}>
-                Try again
-              </Button>
-            </Card>
-          ) : null}
 
           <p className="text-2xs leading-relaxed text-ink-600">
             Delivery observations (camera brightness and movement) are computed on your device only and are never used to judge personality,

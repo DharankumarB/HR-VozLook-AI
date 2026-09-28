@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ApiError, api, getToken, setToken } from '../lib/api'
 import { supabase, supabaseEnabled } from '../lib/supabase'
-import type { Profile, SessionUser } from '../lib/types'
+import type { LanguageCode, Profile, SessionUser } from '../lib/types'
 
 interface AuthContextValue {
   user: SessionUser | null
@@ -9,8 +9,13 @@ interface AuthContextValue {
   loading: boolean
   initialising: boolean
   provider: string | null
-  signup: (input: { email: string; password: string; fullName?: string }) => Promise<void>
-  login: (input: { email: string; password: string }) => Promise<void>
+  /** Read-only on the client: the value comes from the server and can never be set here. */
+  role: 'user' | 'admin'
+  isAdmin: boolean
+  setLanguage: (language: LanguageCode) => Promise<void>
+  signup: (input: { email: string; password: string; fullName?: string }) => Promise<{ redirectTo: string }>
+  login: (input: { email: string; password: string }) => Promise<{ redirectTo: string }>
+  loginWithGoogle: (credential: string) => Promise<{ redirectTo: string; isNewAccount: boolean }>
   logout: () => Promise<void>
   refresh: () => Promise<void>
   updateProfile: (patch: Parameters<typeof api.updateProfile>[0]) => Promise<Profile>
@@ -29,12 +34,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(false)
   const [initialising, setInitialising] = useState(true)
   const [provider, setProvider] = useState<string | null>(null)
+  const [role, setRole] = useState<'user' | 'admin'>('user')
 
   const clearSession = useCallback(() => {
     setToken(null)
     setUser(null)
     setProfile(null)
     setProvider(null)
+    setRole('user')
   }, [])
 
   /** Restores the session on first paint (local token or a persisted Supabase session). */
@@ -57,6 +64,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(response.user)
         setProfile(response.profile)
         setProvider(response.provider ?? 'local')
+        setRole(response.profile?.role === 'admin' ? 'admin' : 'user')
       } catch (error) {
         if (cancelled) return
         // An expired or revoked token simply means "signed out".
@@ -111,6 +119,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(me.user)
         setProfile(me.profile)
         setProvider(me.provider)
+        setRole(me.profile?.role === 'admin' ? 'admin' : 'user')
+        return { redirectTo: me.redirect_to ?? (me.profile?.role === 'admin' ? '/admin' : '/dashboard') }
       } finally {
         setLoading(false)
       }
@@ -133,9 +143,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(me.user)
       setProfile(me.profile)
       setProvider(me.provider)
+      setRole(me.profile?.role === 'admin' ? 'admin' : 'user')
+      return { redirectTo: me.redirect_to ?? (me.profile?.role === 'admin' ? '/admin' : '/dashboard') }
     } finally {
       setLoading(false)
     }
+  }, [])
+
+  /**
+   * Google Sign-In. The ID token from Google Identity Services is verified on the server; the role and
+   * the new-vs-existing account decision also come from the server, never from the browser.
+   */
+  const loginWithGoogle = useCallback(async (credential: string) => {
+    setLoading(true)
+    try {
+      const response = await api.google(credential)
+      setToken(response.token)
+      setUser(response.user)
+      setProfile(response.profile)
+      setProvider('google')
+      setRole(response.profile?.role === 'admin' ? 'admin' : 'user')
+      return {
+        redirectTo: response.redirect_to ?? (response.profile?.role === 'admin' ? '/admin' : '/dashboard'),
+        isNewAccount: Boolean(response.is_new_account),
+      }
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  /** Persists the language preference; unsupported languages are refused by the server. */
+  const setLanguage = useCallback(async (language: LanguageCode) => {
+    await api.setLanguage(language)
+    setProfile((current) => (current ? { ...current, preferred_language: language } : current))
   }, [])
 
   const logout = useCallback(async () => {
@@ -155,6 +195,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(me.user)
     setProfile(me.profile)
     setProvider(me.provider)
+    setRole(me.profile?.role === 'admin' ? 'admin' : 'user')
   }, [])
 
   const updateProfile = useCallback(async (patch: Parameters<typeof api.updateProfile>[0]) => {
@@ -170,8 +211,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       initialising,
       provider,
+      role,
+      isAdmin: role === 'admin',
+      setLanguage,
       signup,
       login,
+      loginWithGoogle,
       logout,
       refresh,
       updateProfile,
@@ -181,7 +226,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       deleteAccount: api.deleteAccount,
       supabaseEnabled,
     }),
-    [user, profile, loading, initialising, provider, signup, login, logout, refresh, updateProfile],
+    [user, profile, loading, initialising, provider, role, setLanguage, signup, login, loginWithGoogle, logout, refresh, updateProfile],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

@@ -164,7 +164,7 @@ export default function Signup() {
         </Field>
 
         <p className="text-2xs leading-relaxed text-ink-500">
-          By creating an account you agree that VozLook InterviewAI provides practice feedback only — it does not make hiring decisions.
+          By creating an account you agree that VozHireQ provides practice feedback only — it does not make hiring decisions.
           {supabaseEnabled ? ' Authentication is handled by Supabase Auth.' : ''}
         </p>
 

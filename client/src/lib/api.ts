@@ -1,4 +1,12 @@
 import type {
+  AdminAnalytics,
+  AdminInterviewDetail,
+  AdminInterviewRow,
+  AdminLogEntry,
+  AdminOverview,
+  AdminReportInsights,
+  AdminSettingsResponse,
+  AdminUserRow,
   AnswerRecord,
   CoachResponse,
   DashboardResponse,
@@ -11,6 +19,7 @@ import type {
   ProgressResponse,
   QuestionRecord,
   ReportRecord,
+  LanguageCode,
   ResumeRecord,
   SessionUser,
   WeakTopic,
@@ -19,7 +28,13 @@ import type {
 const TOKEN_KEY = 'vozlook.session.token'
 
 /** Endpoints where a 401 means "wrong credentials", not "expired session". */
-const CREDENTIAL_ENDPOINTS = ['/api/auth/login', '/api/auth/signup', '/api/auth/change-password', '/api/auth/account']
+const CREDENTIAL_ENDPOINTS = [
+  '/api/auth/login',
+  '/api/auth/signup',
+  '/api/auth/google',
+  '/api/auth/change-password',
+  '/api/auth/account',
+]
 
 export class ApiError extends Error {
   status: number
@@ -135,7 +150,22 @@ export const api = {
   login: (input: { email: string; password: string }) =>
     request<{ token: string; user: SessionUser; profile: Profile }>('/api/auth/login', { method: 'POST', body: input }),
   logout: () => request<{ ok: boolean }>('/api/auth/logout', { method: 'POST' }),
-  me: () => request<{ user: SessionUser; profile: Profile; provider: string }>('/api/auth/me'),
+  me: () =>
+    request<{
+      user: SessionUser
+      profile: Profile
+      provider: string
+      redirect_to?: string
+      admin?: { surface: string; can_access: boolean }
+    }>('/api/auth/me'),
+  /** Exchanges a Google Identity Services credential (ID token) for a VozHireQ session. */
+  google: (credential: string) =>
+    request<{ token: string; user: SessionUser; profile: Profile; is_new_account: boolean; redirect_to: string }>('/api/auth/google', {
+      method: 'POST',
+      body: { credential },
+    }),
+  setLanguage: (language: LanguageCode) =>
+    request<{ ok: boolean; language: LanguageCode }>('/api/auth/language', { method: 'PUT', body: { language } }),
   forgotPassword: (email: string) =>
     request<{ ok: boolean; message: string; resetToken?: string; resetPath?: string; notice?: string }>('/api/auth/forgot-password', {
       method: 'POST',
@@ -278,6 +308,51 @@ export const api = {
   /* coach ----------------------------------------------------------------- */
   coach: (messages: { role: 'user' | 'assistant'; content: string }[]) => request<CoachResponse>('/api/coach', { method: 'POST', body: { messages } }),
   coachSuggestions: () => request<{ suggestions: string[]; weak_topics: string[]; target_role: string | null }>('/api/coach/suggestions'),
+
+  /* admin console ---------------------------------------------------------
+   * Every call is authorised server-side from the database role; the client
+   * never decides who is an administrator.
+   * ---------------------------------------------------------------------- */
+  admin: {
+    me: () => request<{ user: { id: string; email: string; role: string }; admin: { surface: string; provisioning: number } }>('/api/admin/me'),
+    overview: () => request<AdminOverview>('/api/admin/overview'),
+    analytics: (rangeDays = 30) => request<AdminAnalytics>(`/api/admin/analytics?range=${rangeDays}`),
+    users: (filters: { search?: string; role?: string; status?: string; from?: string; to?: string } = {}) => {
+      const params = new URLSearchParams()
+      for (const [key, value] of Object.entries(filters)) if (value && value !== 'all') params.set(key, value)
+      const query = params.toString()
+      return request<{ users: AdminUserRow[]; options: { roles: string[]; statuses: string[] } }>(`/api/admin/users${query ? `?${query}` : ''}`)
+    },
+    user: (id: string) =>
+      request<{
+        user: AdminUserRow
+        profile: Profile | null
+        interviews: AdminInterviewRow[]
+        resumes: { id: string; file_name: string; created_at: string; skills: number }[]
+        jobs: { id: string; title: string; company: string | null; created_at: string }[]
+        reports: { id: string; interview_id: string; overall_score: number; created_at: string }[]
+        activity: { id: string; action: string; created_at: string; target_type: string | null }[]
+        progress: { interviews: number; completed: number; average_score: number | null; best_score: number | null }
+      }>(`/api/admin/users/${id}`),
+    setUserStatus: (id: string, status: 'active' | 'disabled') =>
+      request<{ ok: boolean; status: string }>(`/api/admin/users/${id}/status`, { method: 'POST', body: { status } }),
+    deleteUser: (id: string) => request<{ ok: boolean; message: string }>(`/api/admin/users/${id}`, { method: 'DELETE' }),
+    interviews: (filters: { search?: string; type?: string; mode?: string; status?: string; from?: string; to?: string } = {}) => {
+      const params = new URLSearchParams()
+      for (const [key, value] of Object.entries(filters)) if (value && value !== 'all') params.set(key, value)
+      const query = params.toString()
+      return request<{
+        interviews: AdminInterviewRow[]
+        totals: { all: number; completed: number; in_progress: number; with_report: number }
+      }>(`/api/admin/interviews${query ? `?${query}` : ''}`)
+    },
+    interview: (id: string) => request<AdminInterviewDetail>(`/api/admin/interviews/${id}`),
+    reports: () => request<AdminReportInsights>('/api/admin/reports'),
+    settings: () => request<AdminSettingsResponse>('/api/admin/settings'),
+    updateSetting: (key: string, value: string | number | boolean) =>
+      request<{ ok: boolean; settings: AdminSettingsResponse['settings'] }>(`/api/admin/settings/${key}`, { method: 'PUT', body: { value } }),
+    logs: (limit = 100) => request<{ logs: AdminLogEntry[] }>(`/api/admin/logs?limit=${limit}`),
+  },
 }
 
 /** Builds an authenticated URL for locally stored files (avatars, résumés, recordings). */

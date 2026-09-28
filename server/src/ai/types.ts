@@ -176,6 +176,10 @@ export interface EvaluationContext {
   job: JobAnalysis | null
   jobRole: string
   answer: string
+  /** Interviewer persona id — affects tone of the feedback only, never the score. */
+  persona?: string
+  /** Language the candidate is being interviewed in (English only today). */
+  language?: string
   mediaMetrics?: {
     duration_seconds?: number
     word_count?: number

@@ -1,8 +1,11 @@
 import type { EvaluationContext, InterviewType, JobAnalysis, QuestionContext, ResumeAnalysis } from './types.js'
+import { resolvePersona } from './personas.js'
+import { languageInstruction } from './languages.js'
 
-const PERSONA = `You are the AI interviewer inside "VozLook InterviewAI" by VozLook Studios — a mock-interview practice tool for candidates.
+const PERSONA = `You are the AI interviewer inside "VozHireQ" by VozLook Studios — an AI-powered interview intelligence platform that helps candidates practise realistic interviews.
 You are professional, calm and encouraging, like a senior hiring manager running a real interview.
-You never claim to predict hiring outcomes, personality, honesty, intelligence or mental health. Assessments are practice feedback only.`
+You never claim to predict hiring outcomes, personality, honesty, intelligence or mental health. Assessments are practice feedback only.
+You never ask about, and never reason about, protected personal characteristics.`
 
 const JSON_RULE = `Respond with a SINGLE valid JSON object and nothing else — no markdown, no commentary, no code fences.
 Use plain ASCII quotes. Never include trailing commas. Never omit required keys.`
@@ -131,26 +134,48 @@ Technical requirements: ${job.technical_requirements.slice(0, 10).join(' | ') ||
       ? `Difficulty is ADAPTIVE: pick the level that best fits the candidate's latest answer — raise it when the previous answer scored above 78, keep it medium around 55-78, lower it below 55.`
       : `Target difficulty: ${ctx.difficulty}.`
 
+  const persona = resolvePersona(ctx.persona)
+  const blueprintBlock = ctx.blueprint
+    ? `QUESTION BLUEPRINT (follow it)
+Target question type: ${ctx.blueprint.target_type}
+Focus skills to probe: ${ctx.blueprint.focus_skills.join(', ') || 'n/a'}
+Anchor on one of these résumé items: ${ctx.blueprint.resume_anchors.join(' | ') || 'n/a'}
+Must cover from the job description: ${ctx.blueprint.must_cover_from_job.join(', ') || 'n/a'}
+Minimum difficulty: ${ctx.blueprint.min_difficulty}
+Why this question now: ${ctx.blueprint.rationale}`
+    : ''
+
+  const feedbackBlock = ctx.validationFeedback?.length
+    ? `YOUR PREVIOUS ATTEMPTS WERE REJECTED BY THE QUESTION VALIDATOR — fix all of these:\n${ctx.validationFeedback.map((item) => `- ${item}`).join('\n')}`
+    : ''
+
   return {
-    system: `${PERSONA}\nYou are generating question ${ctx.questionNumber} of ${ctx.totalQuestions} for a ${ctx.interviewType} interview (${ctx.mode} mode).\n${JSON_RULE}`,
+    system: `${PERSONA}
+Interviewer persona: ${persona.label}. ${persona.tone}
+You are generating question ${ctx.questionNumber} of ${ctx.totalQuestions} for a ${ctx.interviewType} interview (${ctx.mode} mode).
+${languageInstruction(ctx.language)}
+${JSON_RULE}`,
     prompt: `${resumeBlock}
 
 ${jobBlock}${focusBlock}
+
+${blueprintBlock}
 
 ${history}
 
 ALREADY ASKED (never repeat or paraphrase these):
 ${ctx.askedQuestions.length ? ctx.askedQuestions.map((q) => `- ${q}`).join('\n') : '- none yet'}
 Topics already covered: ${ctx.askedTopics.join(', ') || 'none'}
-
+${feedbackBlock ? `\n${feedbackBlock}\n` : ''}
 RULES
 1. Ask exactly ONE question, phrased the way a real interviewer would speak it aloud.
-2. Ground it in the candidate's résumé or the job requirements whenever possible; prefer concrete anchors (a named project, a listed technology, a responsibility).
-3. ${difficultyRule}
+2. Ground it in the candidate's résumé or the job requirements whenever possible; prefer a concrete anchor (a named project, a listed technology, a responsibility). Never invent a project, employer or technology that is not in the material above.
+3. ${difficultyRule} Follow the persona's difficulty bias (${persona.difficultyBias > 0 ? 'raise' : persona.difficultyBias < 0 ? 'lower' : 'neutral'}).
 4. The question must be answerable in 60-120 seconds and must not be a multi-part essay prompt.
 5. expected_topics: 3-5 short concepts a strong answer should touch, used later to grade the answer.
 6. Mix question types according to the interview type "${ctx.interviewType}".
-7. Never ask for personal/sensitive information.
+7. Never ask for personal/sensitive information, and never ask about protected characteristics.
+8. Write the whole question in one language only, as instructed above.
 
 Return exactly:
 {"question": string, "type": "technical"|"behavioral"|"hr"|"situational"|"resume", "difficulty": "easy"|"medium"|"hard", "expected_topics": string[], "resume_anchor": string|null}`,
@@ -185,6 +210,7 @@ Return exactly: {"follow_up": {"question": string, "expected_topics": string[]} 
 /* ------------------------------------------------------------------ */
 
 export function evaluationPrompt(ctx: EvaluationContext) {
+  const persona = resolvePersona(ctx.persona)
   const deliverable = ctx.mediaMetrics
     ? `MEASURED DELIVERY SIGNALS (from the candidate's audio/video — objective measurements, not judgements)
 duration: ${ctx.mediaMetrics.duration_seconds ?? 'n/a'}s
@@ -198,7 +224,13 @@ posture consistency: ${ctx.mediaMetrics.posture_consistency ?? 'n/a'}/100`
     : 'MEASURED DELIVERY SIGNALS\nNo audio/video captured (text answer). Judge clarity and confidence from the written answer only.'
 
   return {
-    system: `${PERSONA}\nYou grade one interview answer. Be fair, specific and constructive — never flatter, never harsh.\n${JSON_RULE}`,
+    system: `${PERSONA}
+Interviewer persona: ${persona.label}. ${persona.tone}
+You grade one interview answer. Be fair, specific and constructive — never flatter, never harsh.
+Grade only what is observable in the answer: relevance, technical correctness, completeness, clarity, structure, communication and role alignment.
+Never infer or comment on personality, honesty, intelligence, mental health, age, gender, nationality, religion, disability or any other protected characteristic.
+${languageInstruction(ctx.language)}
+${JSON_RULE}`,
     prompt: `TARGET ROLE: ${ctx.jobRole}
 QUESTION (${ctx.questionType}, ${ctx.difficulty}): ${ctx.question}
 EXPECTED TOPICS: ${ctx.expectedTopics.join(', ') || 'general'}

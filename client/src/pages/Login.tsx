@@ -1,14 +1,17 @@
 import { Eye, EyeOff, LogIn } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { GoogleSignInButton } from '../components/auth/GoogleSignInButton'
 import { AuthLayout } from '../components/layout/AuthLayout'
 import { Button, ErrorState, Field, Input } from '../components/ui/primitives'
 import { ApiError } from '../lib/api'
+import { useMeta } from '../lib/meta'
 import { useAuth } from '../state/AuthContext'
 import { useToast } from '../state/ToastContext'
 
 export default function Login() {
   const { login, loading, supabaseEnabled } = useAuth()
+  const { meta } = useMeta()
   const toast = useToast()
   const navigate = useNavigate()
   const location = useLocation()
@@ -18,7 +21,12 @@ export default function Login() {
   const [error, setError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({})
 
-  const redirectTo = (location.state as { from?: string } | null)?.from ?? '/dashboard'
+  /** Where the visitor was heading before the session expired, otherwise the role-aware default. */
+  const requestedPath = (location.state as { from?: string } | null)?.from
+  const afterAuth = (serverRedirect?: string) => {
+    if (requestedPath && requestedPath !== '/login') return requestedPath
+    return serverRedirect ?? '/dashboard'
+  }
 
   const onSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -30,9 +38,9 @@ export default function Login() {
     if (Object.keys(errors).length) return
 
     try {
-      await login({ email: email.trim().toLowerCase(), password })
-      toast.success('Welcome back', 'Your session is ready.')
-      navigate(redirectTo, { replace: true })
+      const result = await login({ email: email.trim().toLowerCase(), password })
+      toast.success('Welcome back', 'Your practice workspace is ready.')
+      navigate(afterAuth(result.redirectTo), { replace: true })
     } catch (caught) {
       const message =
         caught instanceof ApiError
@@ -44,17 +52,19 @@ export default function Login() {
     }
   }
 
+  const googleClientId = meta?.google_auth?.client_id ?? import.meta.env.VITE_GOOGLE_CLIENT_ID ?? null
+
   return (
     <AuthLayout
       title="Sign in"
       subtitle={
         supabaseEnabled
-          ? 'Your account is managed by Supabase Auth. Sign in to continue practising.'
+          ? 'Your VozHireQ account is secured by Supabase Auth. Sign in to continue practising.'
           : 'Sign in to continue your interview practice.'
       }
       footer={
         <>
-          New here?{' '}
+          New to VozHireQ?{' '}
           <Link to="/signup" className="font-semibold text-accent-soft hover:underline">
             Create an account
           </Link>
@@ -111,9 +121,24 @@ export default function Login() {
         </div>
 
         <Button type="submit" fullWidth size="lg" loading={loading} icon={<LogIn className="h-4 w-4" aria-hidden />}>
-          Sign in
+          Sign In
         </Button>
       </form>
+
+      <div className="my-6 flex items-center gap-3 text-2xs uppercase tracking-[0.2em] text-ink-600">
+        <span className="h-px flex-1 bg-white/10" aria-hidden />
+        or
+        <span className="h-px flex-1 bg-white/10" aria-hidden />
+      </div>
+
+      <GoogleSignInButton
+        clientId={googleClientId}
+        onSuccess={(result) => {
+          toast.success('Signed in with Google', result.isNewAccount ? 'Your VozHireQ account is ready.' : 'Welcome back.')
+          navigate(afterAuth(result.redirectTo), { replace: true })
+        }}
+        onError={(message) => setError(message)}
+      />
     </AuthLayout>
   )
 }

@@ -331,7 +331,7 @@ export default function InterviewReport() {
           <Badge tone="neutral">Practice metrics only</Badge>
           <p className="mt-3 text-xs leading-relaxed text-ink-400">{SCORE_DISCLAIMER}</p>
           <p className="mt-2 text-xs leading-relaxed text-ink-500">
-            VozLook InterviewAI does not predict hiring outcomes and does not assess personality, honesty, intelligence or mental state. Use these
+            VozHireQ does not predict hiring outcomes and does not assess personality, honesty, intelligence or mental state. Use these
             scores to direct your practice, not as a verdict on your ability.
           </p>
         </div>

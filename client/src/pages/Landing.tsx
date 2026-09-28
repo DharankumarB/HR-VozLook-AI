@@ -177,7 +177,7 @@ export default function Landing() {
                   Built as a practice tool, not a verdict
                 </h2>
                 <p className="mt-3 text-sm leading-relaxed text-ink-300">
-                  VozLook InterviewAI scores your answers and delivery so you can rehearse. It never claims to predict hiring outcomes, and it
+                  VozHireQ scores your answers and delivery so you can rehearse. It never claims to predict hiring outcomes, and it
                   never assesses personality, honesty, intelligence or mental state. Video observations are optional, computed on your device,
                   and presented as rough practice signals you can turn off.
                 </p>

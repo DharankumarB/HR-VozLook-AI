@@ -296,5 +296,5 @@ export async function buildReportPdf(userId: string, interviewId: string): Promi
     .replace(/^-|-$/g, '')
     .slice(0, 40)
   const date = new Date(String(interview.completed_at ?? interview.created_at)).toISOString().slice(0, 10)
-  return { buffer, fileName: `vozlook-interviewai-report-${slug || 'interview'}-${date}.pdf` }
+  return { buffer, fileName: `vozhireq-report-${slug || 'interview'}-${date}.pdf` }
 }

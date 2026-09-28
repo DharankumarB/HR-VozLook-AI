@@ -7,7 +7,7 @@ import type { Row } from '../db/store.js'
  */
 
 const BRAND = 'VozLook Studios'
-const PRODUCT = 'VozLook InterviewAI'
+const PRODUCT = 'VozHireQ'
 const ACCENT = '#7C5CFF'
 const INK = '#14161C'
 const MUTED = '#6B7280'

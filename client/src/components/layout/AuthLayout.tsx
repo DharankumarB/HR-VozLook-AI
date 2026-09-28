@@ -5,9 +5,9 @@ import { Link } from 'react-router-dom'
 import { BRAND } from '../../lib/constants'
 
 const HIGHLIGHTS = [
-  { icon: FileText, title: 'Résumé-grounded questions', description: 'Your projects, your stack, your context.' },
-  { icon: Gauge, title: 'Adaptive difficulty', description: 'Follow-up questions that react to your answers.' },
-  { icon: Bot, title: 'Explainable feedback', description: 'Every score shows the formula behind it.' },
+  { icon: FileText, title: 'Résumé and job grounded', description: 'Questions built from your projects, skills and the role you are targeting.' },
+  { icon: Gauge, title: 'Adaptive follow-ups', description: 'The interviewer probes weak or vague answers the way a hiring manager would.' },
+  { icon: Bot, title: 'Explainable feedback', description: 'Every score shows the dimension, the evidence and the formula behind it.' },
 ]
 
 export function AuthLayout({
@@ -37,12 +37,12 @@ export function AuthLayout({
         </Link>
 
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45 }}>
+          <span className="chip mb-5">{BRAND.productDescription}</span>
           <h2 className="max-w-md text-3xl font-semibold leading-tight text-ink-50">
-            Practice the interview <span className="text-gradient">before it counts.</span>
+            Meet Your <span className="text-gradient">AI Interviewer.</span>
           </h2>
           <p className="mt-4 max-w-md text-sm leading-relaxed text-ink-300">
-            VozLook InterviewAI runs a realistic interview from your résumé and target job, then explains exactly where your answers lost marks
-            and how to fix them.
+            Practice realistic interviews. Understand your performance. Grow with every attempt.
           </p>
           <ul className="mt-8 space-y-4">
             {HIGHLIGHTS.map((item) => (
@@ -60,7 +60,7 @@ export function AuthLayout({
         </motion.div>
 
         <p className="text-2xs text-ink-600">
-          {BRAND.vendor} · {BRAND.studioLine}
+          {BRAND.product} · {BRAND.studioLine}
         </p>
       </div>
 

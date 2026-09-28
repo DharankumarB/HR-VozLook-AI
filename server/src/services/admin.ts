@@ -493,6 +493,8 @@ export async function adminInterviewDetail(interviewId: string) {
       user_id: String(interview.user_id),
       name: profile?.full_name ?? null,
       email: user?.email ?? null,
+      role: roleOf(profile),
+      status: profile?.status === 'disabled' ? ('disabled' as const) : ('active' as const),
     },
     questions: questions.map((question) => {
       const answer = answers.find((row) => row.question_id === question.id) ?? null
@@ -507,6 +509,8 @@ export async function adminInterviewDetail(interviewId: string) {
         expected_topics: (question.expected_topics as string[] | null) ?? [],
         generation: question.generation ?? null,
         answer: answer ? String(answer.answer_text ?? '') : null,
+        answer_created_at: answer ? String(answer.created_at) : null,
+        answer_duration_seconds: answer && answer.duration_seconds != null ? Number(answer.duration_seconds) : null,
         answer_metrics: answer?.media_metrics ?? null,
         evaluation: evaluation
           ? {
@@ -517,6 +521,8 @@ export async function adminInterviewDetail(interviewId: string) {
               structure: Number(evaluation.structure_score),
               problem_solving: Number(evaluation.problem_solving_score),
               confidence: Number(evaluation.confidence_score),
+              communication: evaluation.communication_score != null ? Number(evaluation.communication_score) : Number(evaluation.clarity_score),
+              coverage: (evaluation.coverage as { topic: string; covered: boolean }[] | null) ?? [],
               feedback: evaluation.feedback ?? null,
               strengths: (evaluation.strengths as string[] | null) ?? [],
               improvements: (evaluation.improvements as string[] | null) ?? [],
