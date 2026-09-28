@@ -1,4 +1,5 @@
 import { getStore } from '../db/index.js'
+import { isScaffoldingTopic } from '../ai/local/skills.js'
 import type { Row } from '../db/store.js'
 import { jobAnalysisOf } from './job.js'
 
@@ -75,26 +76,6 @@ export interface WeakTopic {
 }
 
 /** Recurring gaps: expected topics the candidate has repeatedly not covered, across sessions. */
-/**
- * Scaffolding topics produced by follow-up probes (e.g. "practical application"). They are useful
- * inside an evaluation but meaningless as study targets, so they are excluded from cross-session
- * weak-topic analytics.
- */
-const NON_ACTIONABLE_TOPICS = new Set([
-  'follow-up',
-  'your actions',
-  'situation',
-  'practical application',
-  'implementation detail',
-  'result',
-  'example',
-  'concrete example',
-  'learning plan',
-  'mitigation',
-  'specific example',
-  'your specific contribution',
-])
-
 export async function weakTopics(userId: string, limit = 12): Promise<WeakTopic[]> {
   const store = getStore()
   const interviews = await store.findMany<Row>('interviews', {
@@ -111,7 +92,7 @@ export async function weakTopics(userId: string, limit = 12): Promise<WeakTopic[
       for (const item of coverage) {
         if (!item?.topic || item.covered) continue
         const key = item.topic.trim()
-        if (!key || NON_ACTIONABLE_TOPICS.has(key.toLowerCase())) continue
+        if (isScaffoldingTopic(key)) continue
         const entry = tally.get(key) ?? { misses: 0, sessions: new Set<string>(), lastSeen: null }
         entry.misses += 1
         entry.sessions.add(String(interview.id))

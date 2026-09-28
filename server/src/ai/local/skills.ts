@@ -192,6 +192,41 @@ const DOMAIN_KEYWORDS: Record<string, string[]> = {
   'general software': ['software engineer', 'software developer', 'programmer', 'sde', 'application developer'],
 }
 
+/**
+ * Follow-up probes attach scaffolding topics such as "practical application" or "your specific
+ * contribution" to an evaluation. They are meaningful when grading a single answer but useless as
+ * study targets, so report recommendations and cross-session analytics both filter them out.
+ */
+const SCAFFOLDING_TOPICS = new Set([
+  'follow-up',
+  'your actions',
+  'your role',
+  'your contribution',
+  'your specific contribution',
+  'situation',
+  'practical application',
+  'implementation detail',
+  'result',
+  'example',
+  'concrete example',
+  'specific example',
+  'outcome',
+  'learning',
+  'learning plan',
+  'growth',
+  'goals',
+  'motivation',
+  'commitment',
+  'impact',
+  'mitigation',
+])
+
+/** True when a coverage topic is interviewer scaffolding rather than a real subject to revise. */
+export function isScaffoldingTopic(topic: string): boolean {
+  const key = (topic ?? '').trim().toLowerCase()
+  return key.length < 2 || SCAFFOLDING_TOPICS.has(key)
+}
+
 export function canonicalSkill(raw: string): string {
   const needle = raw.trim().toLowerCase()
   if (!needle) return raw.trim()

@@ -9,7 +9,7 @@ import type {
   ReportNarrative,
   ResumeAnalysis,
 } from '../types.js'
-import { detectSkillNames, normalizeSkillList } from './skills.js'
+import { detectSkillNames, isScaffoldingTopic, normalizeSkillList } from './skills.js'
 import { phraseOverlap } from './text.js'
 
 export interface ReportInput {
@@ -197,9 +197,16 @@ export function buildReportLocally(input: ReportInput): ReportNarrative {
     },
   ]
 
+  const candidateTopics = [...missingRequirements, ...missedTopics, ...(input.job?.preferred_skills ?? [])]
   const recommended_topics = normalizeSkillList(
-    [...missingRequirements, ...missedTopics, ...(input.job?.preferred_skills ?? [])].filter(
-      (topic) => !coveredTopics.some((covered) => covered.toLowerCase() === topic.toLowerCase()),
+    candidateTopics.filter(
+      (topic) =>
+        !isScaffoldingTopic(topic) &&
+        !coveredTopics.some((covered) => covered.toLowerCase() === topic.toLowerCase()) &&
+        // Drop a short requirement that is only a fragment of a longer recommended phrase.
+        !candidateTopics.some(
+          (other) => other.toLowerCase() !== topic.toLowerCase() && other.toLowerCase().includes(topic.toLowerCase()),
+        ),
     ),
     10,
   )
