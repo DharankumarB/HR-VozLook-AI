@@ -1,0 +1,42 @@
+# dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# builds
+dist/
+build/
+*.tsbuildinfo
+
+# env / secrets — never commit these
+.env
+.env.local
+.env.*.local
+server/.env
+client/.env
+*.pem
+
+# local data (SQLite database + uploaded files)
+server/data/
+data/
+*.db
+*.db-journal
+*.sqlite
+
+# logs
+npm-debug.log*
+yarn-error.log*
+logs/
+*.log
+
+# editor / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# test output
+coverage/
+.vite/
