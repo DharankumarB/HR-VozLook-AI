@@ -10,6 +10,7 @@ import { getStore, initStore } from './db/index.js'
 import { SqliteStore } from './db/sqlite.js'
 import { ApiError } from './lib/errors.js'
 import { attachUser } from './auth/middleware.js'
+import { rateLimit } from './lib/rateLimit.js'
 import authRoutes from './routes/auth.js'
 import profileRoutes from './routes/profile.js'
 import resumeRoutes from './routes/resume.js'
@@ -57,14 +58,31 @@ export async function createApp() {
 
   app.use(attachUser)
 
-  app.use('/api/auth', authRoutes)
+  app.use(
+    '/api/auth',
+    // Credential endpoints are the classic brute-force target: keep them tight.
+    rateLimit({ windowMs: 60_000, max: 30, message: 'Too many sign-in attempts. Please wait a minute and try again.' }),
+    authRoutes,
+  )
   app.use('/api/profile', profileRoutes)
-  app.use('/api/resume', resumeRoutes)
-  app.use('/api/job', jobRoutes)
-  app.use('/api/interview', interviewRoutes)
+  // Uploads and evaluation-heavy routes share a per-user ceiling.
+  const heavyLimit = rateLimit({
+    windowMs: 60_000,
+    max: 60,
+    keyBy: 'user',
+    message: 'That is a lot of requests in a short time. Please pause for a moment and continue.',
+  })
+  app.use('/api/resume', heavyLimit, resumeRoutes)
+  app.use('/api/job', heavyLimit, jobRoutes)
+  app.use('/api/interview', heavyLimit, interviewRoutes)
   app.use('/api/files', fileRoutes)
   app.use('/api', reportRoutes) // /api/interviews/:id/report, /api/dashboard, /api/progress, /api/reports/:id
-  app.use('/api/coach', coachRoutes)
+  app.use(
+    '/api/coach',
+    // The coach and the interview engine call the AI provider on every request — meter them per user.
+    rateLimit({ windowMs: 60_000, max: 40, keyBy: 'user', message: 'You are practising faster than the AI can respond. Give it a few seconds.' }),
+    coachRoutes,
+  )
   app.use('/api/admin', adminRoutes)
   app.use('/api', metaRoutes) // /api/health, /api/meta
 

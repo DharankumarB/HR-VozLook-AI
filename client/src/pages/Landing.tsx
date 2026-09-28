@@ -35,8 +35,8 @@ const FEATURES = [
 ]
 
 export default function Landing() {
-  const { user, profile } = useAuth()
-  const primaryTarget = user ? (profile?.onboarding_completed ? '/dashboard' : '/onboarding') : '/signup'
+  const { user, profile, isAdmin } = useAuth()
+  const primaryTarget = user ? (isAdmin ? BRAND.adminSurface : profile?.onboarding_completed ? '/dashboard' : '/onboarding') : '/signup'
 
   return (
     <div className="min-h-screen w-full overflow-x-hidden">
@@ -65,7 +65,7 @@ export default function Landing() {
           <div className="flex items-center gap-2">
             {user ? (
               <Link to={primaryTarget} className="btn-primary !px-4 !py-2 text-xs sm:text-sm">
-                Go to dashboard
+                {isAdmin ? 'Open admin console' : 'Go to dashboard'}
               </Link>
             ) : (
               <>
@@ -87,16 +87,16 @@ export default function Landing() {
           <div className="pointer-events-none absolute inset-0 -z-10 bg-grid-fade" aria-hidden />
           <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="max-w-3xl">
             <Badge tone="accent">
-              <Sparkles className="h-3 w-3" aria-hidden /> AI mock interviews that explain your score
+              <Sparkles className="h-3 w-3" aria-hidden /> {BRAND.productDescription}
             </Badge>
             <h1 className="mt-5 text-3xl font-semibold leading-tight tracking-tight text-ink-50 sm:text-5xl">
-              Your AI Interviewer.
+              Meet Your AI Interviewer.
               <br />
-              <span className="text-gradient">Your Personal Interview Coach.</span>
+              <span className="text-gradient">Practice. Perform. Grow.</span>
             </h1>
             <p className="mt-5 max-w-2xl text-base leading-relaxed text-ink-300 sm:text-lg">
-              Practice realistic interviews built from your résumé and the job you actually want. Receive personalised, evidence-based feedback
-              and improve with every attempt.
+              VozHireQ runs realistic interviews built from your résumé and the job you actually want, explains exactly where your answers lost
+              marks, and gives you a personalised plan to grow with every attempt.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Link to={primaryTarget} className="btn-primary !px-5 !py-3">

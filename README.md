@@ -1,7 +1,7 @@
-# VozLook InterviewAI
+# VozHireQ
 
-**Practice. Perform. Improve.**
-An AI mock-interview platform by **VozLook Studios** — a working full-stack application, not a prototype.
+**Practice. Perform. Grow.**
+**AI-Powered Interview Intelligence** by **VozLook Studios** — a working full-stack application, not a prototype.
 
 Upload a résumé, add a job description, run a text / voice / video interview with an AI interviewer that asks
 follow-ups based on your answers, then read a transparent, question-by-question practice report with a downloadable
@@ -17,7 +17,11 @@ PDF, progress tracking and an AI improvement coach.
 
 | Area | What actually works |
 | --- | --- |
-| Auth | Signup, login, logout, forgot-password, reset-password, change-password, session persistence, protected routes, account deletion (password-confirmed) |
+| Auth | Email/password signup, login, logout, forgot-password, reset-password, change-password, session persistence, protected routes, account deletion (password-confirmed) **plus Continue with Google** (Google Identity Services ID-token verification server-side; cancellation, failure and new-vs-existing account are all handled) |
+| Roles | Server-side `profiles.role` (`user` / `admin`) and `profiles.status` (`active` / `disabled`). Administrator access is re-read from the database on every `/api/admin/*` request — there is no email check in the browser and no client-trusted role |
+| Admin console | Separate `/admin` layout (Dashboard, Users, Interviews, Reports, Analytics, System, Settings) with live metrics: users, active users, interviews, interviews today, average score, résumés, job roles, mode/type usage, completion rate, growth and performance charts, user search/filters, per-user drill-down, disable/delete account, full interview inspection, aggregated improvement areas, masked system configuration and an immutable audit log |
+| Interviewer avatar | Voice and video modes run in a cinematic room: a large animated AI interviewer (blinking, head movement and mouth motion driven by live speech timing — no false lip-sync claim), a small floating candidate preview, top-centre question counter and bottom mic/camera/speaker/submit/end controls |
+| Language | English is live and is the default and only enabled language; the platform stores a per-session language, refuses unsupported values server-side and instructs the model to answer in exactly one language, so output is never mixed |
 | Onboarding | Four-step wizard (name → target role → experience level → preferred mode) shown once, then never again |
 | Résumé | PDF / DOCX / TXT / MD upload **and** paste-text fallback; real text extraction, then structured analysis (skills, languages, frameworks, tools, projects, experience, internships, education, certifications, achievements, links) |
 | Job description | Paste or file upload; extracted required skills, preferred skills, responsibilities, technical/soft requirements, seniority, domain, keywords |
@@ -219,4 +223,4 @@ answer must clearly outscore a vague one, and no score may leave the 0–100 ran
 
 ---
 
-© VozLook Studios · VozLook InterviewAI provides practice feedback only.
+© VozLook Studios · VozHireQ provides practice feedback only.

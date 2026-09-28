@@ -10,6 +10,7 @@ import {
   Menu,
   Mic,
   Settings,
+  ShieldCheck,
   Sparkles,
   UserRound,
   X,
@@ -58,10 +59,10 @@ export function BrandMark({ compact = false }: { compact?: boolean }) {
   )
 }
 
-function NavList({ onNavigate }: { onNavigate?: () => void }) {
+function NavList({ onNavigate, isAdmin }: { onNavigate?: () => void; isAdmin: boolean }) {
   return (
     <nav className="space-y-1" aria-label="Main navigation">
-      {NAV_ITEMS.map((item) => (
+      {[...NAV_ITEMS, ...(isAdmin ? [{ to: BRAND.adminSurface, label: 'Admin console', icon: ShieldCheck }] : [])].map((item) => (
         <NavLink
           key={item.to}
           to={item.to}
@@ -92,7 +93,7 @@ export function AppShell({
   /** Extra controls rendered in the top bar (used by the live interview screen). */
   actions?: ReactNode
 }) {
-  const { profile, user, logout } = useAuth()
+  const { profile, user, logout, isAdmin } = useAuth()
   const [drawerOpen, setDrawerOpen] = useState(false)
   const location = useLocation()
   const navigate = useNavigate()
@@ -116,7 +117,7 @@ export function AppShell({
         <div className="flex h-full flex-col">
           <BrandMark />
           <div className="mt-8 flex-1">
-            <NavList />
+            <NavList isAdmin={isAdmin} />
           </div>
           <div className="space-y-3 rounded-2xl border border-white/[0.07] bg-white/[0.03] p-3">
             <div className="flex items-center gap-3">
@@ -167,7 +168,7 @@ export function AppShell({
                 </button>
               </div>
               <div className="mt-6">
-                <NavList onNavigate={() => setDrawerOpen(false)} />
+                <NavList isAdmin={isAdmin} onNavigate={() => setDrawerOpen(false)} />
               </div>
               <Button
                 variant="secondary"
@@ -202,6 +203,12 @@ export function AppShell({
             </div>
             <div className="flex items-center gap-2">
               {actions}
+              {isAdmin ? (
+                <Link to={BRAND.adminSurface} className="btn-secondary hidden !px-3 !py-2 text-xs sm:inline-flex" title="Administrator console">
+                  <ShieldCheck className="h-3.5 w-3.5" aria-hidden />
+                  Admin
+                </Link>
+              ) : null}
               <Link to="/interview/setup" className="btn-primary hidden !px-3 !py-2 text-xs sm:inline-flex">
                 <Mic className="h-3.5 w-3.5" aria-hidden />
                 Start interview
