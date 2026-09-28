@@ -84,7 +84,12 @@ export const env = {
 }
 
 export const aiEnabled = Boolean(env.ai.geminiApiKey) && !env.ai.forceLocalEngine
-export const aiEngineLabel = aiEnabled ? `Gemini (${env.ai.geminiModel})` : 'VozLook local analysis engine'
+export const aiEngineLabel = aiEnabled ? `Gemini (${env.ai.geminiModel})` : 'VozHireQ built-in analysis engine'
+
+/** Which storage driver is active for uploads. */
+export function storageMode(): 'supabase' | 'local' {
+  return env.dataMode === 'supabase' ? 'supabase' : 'local'
+}
 
 if (!env.jwtSecretIsExplicit) {
   console.warn('[vozlook] JWT_SECRET not set — using a persisted development secret. Set JWT_SECRET in production.')

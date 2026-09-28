@@ -3,6 +3,10 @@ import type { Row } from '../db/store.js'
 import { newId, nowIso } from '../db/store.js'
 import { ApiError } from '../lib/errors.js'
 import { getAiEngine } from '../ai/index.js'
+import { resolvePersona } from '../ai/personas.js'
+import { DEFAULT_LANGUAGE, resolveLanguage } from '../ai/languages.js'
+import { generateValidatedQuestion } from './questionPipeline.js'
+import { validateQuestion } from '../ai/validation.js'
 import type {
   AnswerEvaluation,
   Difficulty,
@@ -144,8 +148,12 @@ function questionContext(input: {
   const focusAreas = Array.isArray(settings.focus_areas)
     ? (settings.focus_areas as unknown[]).map((item) => String(item).trim()).filter(Boolean).slice(0, 8)
     : []
+  const persona = resolvePersona(asString(settings.persona) || null)
+  const language = resolveLanguage(asString(settings.language) || DEFAULT_LANGUAGE)
 
   return {
+    persona: persona.id,
+    language: language.code,
     jobRole: String(input.interview.job_role),
     focusAreas,
     interviewType: input.interview.interview_type as InterviewType,
@@ -191,14 +199,14 @@ export async function nextQuestion(userId: string, interviewId: string): Promise
 
   const context = questionContext({ interview, resume: bundle.resume, job: bundle.job, questions, answers, evaluations })
 
-  const engine = getAiEngine()
-  let generated: GeneratedQuestion
-  try {
-    generated = await engine.generateQuestion(context)
-  } catch (error) {
-    console.error('[vozlook][interview] question generation failed, retrying locally:', (error as Error).message)
-    generated = await engine.generateQuestion({ ...context, previousAnswers: [] })
-  }
+  // Every question passes through the blueprint → generate → validate → deduplicate pipeline; a
+  // candidate never sees a generic or ungrounded question. Attempts and scores are stored for audit.
+  const pipeline = await generateValidatedQuestion({
+    ...context,
+    askedTopics: context.askedTopics,
+    focusAreas: context.focusAreas,
+  })
+  const generated: GeneratedQuestion = pipeline.question
 
   const question = await store.insert('interview_questions', {
     interview_id: interviewId,
@@ -210,6 +218,19 @@ export async function nextQuestion(userId: string, interviewId: string): Promise
     resume_anchor: generated.resume_anchor ?? null,
     is_follow_up: generated.is_follow_up ? 1 : 0,
     parent_question_id: generated.parent_key ?? null,
+    generation: {
+      engine: pipeline.engine,
+      attempts: pipeline.attempts,
+      duration_ms: pipeline.durationMs,
+      validation_score: pipeline.validation.score,
+      valid: pipeline.validation.valid,
+      checks: pipeline.validation.checks,
+      issues: pipeline.validation.issues,
+      rejected: pipeline.rejected.map((entry) => entry.question),
+      blueprint: pipeline.blueprint,
+      persona: context.persona,
+      language: context.language,
+    },
   })
 
   await store.updateById('interviews', interviewId, {
@@ -311,6 +332,7 @@ export async function submitAnswer(userId: string, interviewId: string, input: S
       media_metrics: mediaMetrics,
     })
 
+    const activeSettings = (interview.settings ?? {}) as Record<string, unknown>
     const evaluationContext = {
       question: String(question.question),
       questionType: question.question_type as any,
@@ -321,6 +343,8 @@ export async function submitAnswer(userId: string, interviewId: string, input: S
       jobRole: String(interview.job_role),
       answer: answerText,
       mediaMetrics,
+      persona: asString(activeSettings.persona) || undefined,
+      language: asString(activeSettings.language) || DEFAULT_LANGUAGE,
     }
 
     const engine = getAiEngine()
@@ -367,7 +391,30 @@ export async function submitAnswer(userId: string, interviewId: string, input: S
     if (worthProbing && followUpsUsed < followUpLimit && question.question_type !== 'hr') {
       try {
         const decision = await engine.maybeFollowUp({ ...evaluationContext, evaluation, askedQuestions })
-        if (decision) {
+        // Follow-ups go through the same validator as core questions: a second-rate probe is dropped
+        // and the session simply moves on to the next planned question.
+        const decisionCheck = decision
+          ? validateQuestion(
+              {
+                question: decision.question,
+                type: decision.type,
+                difficulty: decision.difficulty,
+                expected_topics: decision.expected_topics,
+                resume_anchor: null,
+                is_follow_up: true,
+              },
+              {
+                jobRole: String(interview.job_role),
+                interviewType: interview.interview_type as InterviewType,
+                difficulty: interview.difficulty as DifficultySetting,
+                resume: resumeAnalysisOf(bundle.resume),
+                job: jobAnalysisOf(bundle.job),
+                askedQuestions,
+                focusAreas: [],
+              },
+            )
+          : null
+        if (decision && decisionCheck?.valid) {
           next = await store.insert('interview_questions', {
             interview_id: interviewId,
             question_number: questions.length + 1,
@@ -378,6 +425,20 @@ export async function submitAnswer(userId: string, interviewId: string, input: S
             resume_anchor: null,
             is_follow_up: 1,
             parent_question_id: questionId,
+            generation: {
+              engine: evaluation.engine ?? engine.label,
+              attempts: 1,
+              duration_ms: 0,
+              validation_score: decisionCheck.score,
+              valid: decisionCheck.valid,
+              checks: decisionCheck.checks,
+              issues: decisionCheck.issues,
+              rejected: [],
+              blueprint: null,
+              persona: evaluationContext.persona,
+              language: evaluationContext.language,
+              kind: 'follow_up',
+            },
           })
         }
       } catch (error) {

@@ -33,6 +33,9 @@ export const TABLES: Record<string, TableDef> = {
       'company',
       'experience_level',
       'preferred_mode',
+      'preferred_language',
+      'role',
+      'status',
       'onboarding_completed',
       'created_at',
       'updated_at',
@@ -82,8 +85,9 @@ export const TABLES: Record<string, TableDef> = {
       'is_follow_up',
       'parent_question_id',
       'created_at',
+      'generation',
     ],
-    jsonColumns: ['expected_topics'],
+    jsonColumns: ['expected_topics', 'generation'],
   },
   interview_answers: {
     columns: [
@@ -163,6 +167,16 @@ export const TABLES: Record<string, TableDef> = {
   interview_progress: {
     columns: ['id', 'user_id', 'interview_id', 'metric_name', 'metric_value', 'created_at'],
     jsonColumns: [],
+  },
+  /** Audit trail for everything an administrator does. Written server-side only. */
+  admin_logs: {
+    columns: ['id', 'admin_user_id', 'admin_email', 'action', 'target_type', 'target_id', 'metadata', 'created_at'],
+    jsonColumns: ['metadata'],
+  },
+  /** Editable platform configuration surfaced in the admin settings screen. */
+  system_settings: {
+    columns: ['id', 'key', 'value', 'updated_by', 'created_at', 'updated_at'],
+    jsonColumns: ['value'],
   },
 }
 

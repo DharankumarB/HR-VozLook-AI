@@ -59,4 +59,6 @@ const DEFAULT_COLUMNS: Record<string, { id?: boolean; created_at?: boolean; upda
   answer_evaluations: { id: true, created_at: true },
   interview_reports: { id: true, created_at: true, updated_at: true },
   interview_progress: { id: true, created_at: true },
+  admin_logs: { id: true, created_at: true },
+  system_settings: { id: true, created_at: true, updated_at: true },
 }

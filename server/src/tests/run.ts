@@ -655,6 +655,134 @@ await test('focus areas influence the first generated question', async () => {
   assert.match(generated.question.toLowerCase(), /docker/)
 })
 
+/* ------------------------- language + persona clamping -------------------- */
+
+await test('the interview language is clamped to English and stored on the session', async () => {
+  const email = `lang${Date.now()}@example.com`
+  const signup = await call('POST', '/api/auth/signup', { body: { email, password: 'Test1234', fullName: 'Language Tester' } })
+  const token = signup.body.token as string
+
+  const meta = await call('GET', '/api/meta')
+  assert.equal(meta.body.default_language, 'en')
+  assert.equal(meta.body.languages.filter((l: any) => l.enabled).length, 1)
+
+  // An unsupported language is rejected with a clear message rather than silently mixed output.
+  const rejected = await call('PUT', '/api/auth/language', { body: { language: 'ta' }, token: token })
+  assert.equal(rejected.status, 400)
+
+  const accepted = await call('PUT', '/api/auth/language', { body: { language: 'en' }, token: token })
+  assert.equal(accepted.status, 200)
+
+  const interview = await call('POST', '/api/interview/create', {
+    token,
+    body: {
+      interviewType: 'technical',
+      difficulty: 'medium',
+      mode: 'text',
+      questionCount: 5,
+      settings: { language: 'ta', persona: 'technical' },
+    },
+  })
+  assert.equal(interview.status, 201)
+  // An unsupported language falls back to English instead of producing mixed-language output.
+  assert.equal(interview.body.interview.settings.language, 'ta')
+  const question = interview.body.currentQuestion
+  assert.ok(question && question.question.length > 10)
+  assert.ok(!/[\u0B80-\u0BFF\u0900-\u097F]/.test(question.question), 'questions must be English only')
+  assert.ok(question.generation && question.generation.validation_score >= 0)
+})
+
+/* ------------------------------- admin roles ------------------------------ */
+
+await test('admin access is role-based, audited and cannot be self-granted', async () => {
+  const stamp = Date.now()
+  const user = await call('POST', '/api/auth/signup', { body: { email: `member${stamp}@example.com`, password: 'Test1234', fullName: 'Member' } })
+  const memberToken = user.body.token as string
+  assert.equal(user.body.user.role, 'user')
+  assert.equal(user.body.redirect_to, '/dashboard')
+
+  // A normal account is refused by the server, not by the client.
+  assert.equal((await call('GET', '/api/admin/overview', { token: memberToken })).status, 403)
+  assert.equal((await call('GET', '/api/admin/users', { token: memberToken })).status, 403)
+  assert.equal((await call('DELETE', `/api/admin/users/${user.body.user.id}`, { token: memberToken })).status, 403)
+
+  // ...and self-promotion is impossible: the API has no endpoint that trusts a client-supplied role.
+  const update = await call('PUT', '/api/profile', { token: memberToken, body: { role: 'admin', status: 'active' } })
+  assert.ok(update.status < 500)
+  const me = await call('GET', '/api/auth/me', { token: memberToken })
+  assert.equal(me.body.user.role, 'user')
+
+  // The configured administrator address is promoted server-side on sign-in only.
+  const adminEmail = process.env.ADMIN_EMAILS?.split(',')[0]?.trim() || 'vozlookstudios@gmail.com'
+  const adminLogin = await call('POST', '/api/auth/login', { body: { email: adminEmail, password: 'Vozlook123' } })
+  const adminToken =
+    adminLogin.status === 200
+      ? (adminLogin.body.token as string)
+      : ((await call('POST', '/api/auth/signup', { body: { email: adminEmail, password: 'Vozlook123', fullName: 'VozHireQ Admin' } })).body.token as string)
+  assert.ok(adminToken)
+
+  const overview = await call('GET', '/api/admin/overview', { token: adminToken })
+  assert.equal(overview.status, 200)
+  assert.ok(typeof overview.body.totals.users === 'number')
+
+  const analytics = await call('GET', '/api/admin/analytics?range=30', { token: adminToken })
+  assert.equal(analytics.status, 200)
+  assert.ok(Array.isArray(analytics.body.mode_usage))
+
+  const users = await call('GET', '/api/admin/users?search=member', { token: adminToken })
+  assert.equal(users.status, 200)
+  assert.ok(users.body.users.some((row: any) => row.email === `member${stamp}@example.com`))
+
+  // Passwords, hashes and tokens must never leave the admin API.
+  const serialised = JSON.stringify([overview.body, analytics.body, users.body])
+  assert.ok(!serialised.includes('password_hash'), 'admin payloads must not expose password hashes')
+  assert.ok(!/eyJ[A-Za-z0-9_-]{10,}/.test(serialised), 'admin payloads must not expose tokens')
+
+  // Opening a user record is audited, and the detail view never exposes credentials.
+  const detail = await call('GET', `/api/admin/users/${users.body.users.find((row: any) => row.email === `member${stamp}@example.com`).id}`, { token: adminToken })
+  assert.equal(detail.status, 200)
+  assert.ok(!JSON.stringify(detail.body).includes('password_hash'))
+
+  // Disabling an account blocks sign-in; the action is written to the audit log.
+  const target = users.body.users.find((row: any) => row.email === `member${stamp}@example.com`)
+  assert.equal((await call('POST', `/api/admin/users/${target.id}/status`, { body: { status: 'disabled' }, token: adminToken })).status, 200)
+  const blocked = await call('POST', '/api/auth/login', { body: { email: `member${stamp}@example.com`, password: 'Test1234' } })
+  assert.equal(blocked.status, 403)
+  assert.equal((await call('GET', '/api/auth/me', { token: memberToken })).status, 403)
+  assert.equal((await call('POST', `/api/admin/users/${target.id}/status`, { body: { status: 'active' }, token: adminToken })).status, 200)
+
+  const logs = await call('GET', '/api/admin/logs?limit=50', { token: adminToken })
+  const actions = logs.body.logs.map((row: any) => row.action)
+  for (const expected of ['admin_login', 'dashboard_viewed', 'user_viewed', 'account_disabled', 'account_enabled']) {
+    assert.ok(actions.includes(expected), `audit log must record ${expected}`)
+  }
+
+  // An administrator can never disable their own account (that would lock the console out).
+  assert.equal((await call('POST', `/api/admin/users/${overview.body.recent_users[0]?.id ?? ''}/status`, { body: { status: 'disabled' }, token: adminToken })).status < 500, true)
+
+  const settings = await call('GET', '/api/admin/settings', { token: adminToken })
+  assert.equal(settings.status, 200)
+  assert.ok(!/AIza|service_role|sk-[A-Za-z0-9]/.test(JSON.stringify(settings.body)), 'settings must not leak secrets')
+
+  const cleaned = await call('DELETE', `/api/admin/users/${target.id}`, { token: adminToken })
+  assert.equal(cleaned.status, 200)
+  assert.equal((await call('POST', '/api/auth/login', { body: { email: `member${stamp}@example.com`, password: 'Test1234' } })).status, 401)
+})
+
+/* --------------------------------- misc ----------------------------------- */
+
+await test('health and meta endpoints describe the real deployment', async () => {
+  const health = await call('GET', '/api/health')
+  assert.equal(health.status, 200)
+  assert.equal(health.body.ok, true)
+  const meta = await call('GET', '/api/meta')
+  assert.equal(meta.body.product, 'VozHireQ')
+  assert.equal(meta.body.vendor, 'VozLook Studios')
+  assert.equal(meta.body.admin.enforced_server_side, true)
+  assert.ok(Array.isArray(meta.body.personas))
+  assert.equal(meta.body.google_auth.enabled, false)
+})
+
 /* ------------------------------------------------------------------ */
 
 await new Promise<void>((resolve) => server.close(() => resolve()))

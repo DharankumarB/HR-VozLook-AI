@@ -79,6 +79,43 @@ export function requireAuth(req: Request, _res: Response, next: NextFunction) {
   next()
 }
 
+/**
+ * Administrator gate.
+ *
+ * The role is read from the database on every request — never from a JWT claim the client could
+ * forge, and never from an email comparison in the browser. Disabled accounts are refused even if
+ * they somehow still hold a valid session token.
+ */
+export async function requireAdmin(req: Request, _res: Response, next: NextFunction) {
+  try {
+    if (!req.user) throw ApiError.unauthorized('Your session has expired. Please sign in again.')
+    const store = getStore()
+    const profile = await store.findOne<Row>('profiles', { where: { user_id: req.user.id } })
+    if (!profile) throw ApiError.forbidden('Administrator access is required.')
+    if (profile.status === 'disabled') throw ApiError.forbidden('This account has been disabled.')
+    if (profile.role !== 'admin') throw ApiError.forbidden('Administrator access is required.')
+    req.adminProfile = profile
+    next()
+  } catch (error) {
+    next(error)
+  }
+}
+
+/** Blocks sign-in and every request for accounts an administrator has disabled. */
+export async function requireActiveAccount(req: Request, _res: Response, next: NextFunction) {
+  try {
+    if (!req.user) return next()
+    const store = getStore()
+    const profile = await store.findOne<Row>('profiles', { where: { user_id: req.user.id } })
+    if (profile?.status === 'disabled') {
+      return next(ApiError.forbidden('This account has been disabled. Contact VozLook Studios support if you believe this is a mistake.'))
+    }
+    next()
+  } catch (error) {
+    next(error)
+  }
+}
+
 /** Guarantees the authenticated user owns the row (defence in depth on top of RLS). */
 export function assertOwnership(row: Record<string, any> | null, userId: string, label = 'resource') {
   if (!row) throw ApiError.notFound(`We could not find that ${label}.`)

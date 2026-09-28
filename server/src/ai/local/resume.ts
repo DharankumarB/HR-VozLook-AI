@@ -26,13 +26,52 @@ function isHeading(line: string): SectionKey | null {
 }
 
 export function normalizeResumeText(raw: string): string {
-  return raw
+  const cleaned = raw
     .replace(/\r\n?/g, '\n')
     .replace(/\u00a0/g, ' ')
     .replace(/[•▪◦●‣·]/g, '• ')
     .replace(/[ \t]{2,}/g, '  ')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
+  return mergeWrappedLines(cleaned)
+}
+
+const TERMINAL_PUNCTUATION = /[.:;!?]$/
+const WRAPPED_DATE_RANGE = /\b(19|20)\d{2}\b\s*(?:-|–|—|to)\s*(?:\b(19|20)\d{2}\b|present|current|now)/i
+const ROLE_WORD = /\b(engineer|developer|intern|analyst|designer|consultant|manager|associate|trainee|scientist|architect|lead|specialist)\b/i
+
+/**
+ * Plain-text and PDF-extracted résumés wrap bullets across several lines. Treating every physical line
+ * as a new bullet produces garbled "projects" and experience entries, which then leak into interview
+ * questions. A line is only joined to the previous one when the previous line clearly did not finish
+ * its sentence and the new line is obviously a continuation (lower-case or after a long wrapped line).
+ */
+export function mergeWrappedLines(text: string): string {
+  const lines = text.split('\n')
+  const out: string[] = []
+  for (const raw of lines) {
+    const line = raw.trim()
+    if (!line) {
+      out.push('')
+      continue
+    }
+    const previous = out.length ? out[out.length - 1].trimEnd() : ''
+    const isStructural =
+      !previous ||
+      /^[•\-*]/.test(line) ||
+      /^\d+[.)]/.test(line) ||
+      isHeading(line) !== null ||
+      WRAPPED_DATE_RANGE.test(line) ||
+      (ROLE_WORD.test(line) && line.length < 90) ||
+      /^[A-Z0-9 ,&/()+.'-]+$/.test(line) // ALL-CAPS or title-only header line
+    const isContinuationStart = /^[a-z(\[]/.test(line) || /^[a-z]/.test(previous.slice(-1))
+    if (!isStructural && !TERMINAL_PUNCTUATION.test(previous) && (previous.length >= 55 || isContinuationStart)) {
+      out[out.length - 1] = `${previous} ${line}`
+      continue
+    }
+    out.push(line)
+  }
+  return out.join('\n').replace(/\n{3,}/g, '\n\n').trim()
 }
 
 export function splitSections(text: string): Record<string, string> {
@@ -190,10 +229,18 @@ function parseProjects(block: string): ProjectEntry[] {
     const shortish = line.replace(/^[•\-*\d.)\s]+/, '').length <= 90
 
     /* "Project Name — short description" on one flush-left line is a very common résumé layout. */
-    const separatorMatch = line.match(/^([^—–:;|]{3,70}?)\s*(?:—|–|\s\|\s)\s*(.{15,})$/)
+    const dashSeparator = line.match(/^([^—–:;|]{3,70}?)\s*(?:—|–|\s\|\s)\s*(.{15,})$/)
+    // Plain-text résumés very often use "Project name: what it does" on one line.
+    const colonSeparator = line.match(/^([A-Z][^:.!?]{2,60}):\s+(.{15,})$/)
+    const separatorMatch = dashSeparator ?? colonSeparator
+    const separatorLabel = (separatorMatch ? (dashSeparator ? dashSeparator[1] : colonSeparator![1]) : '') ?? ''
     const indented = /^\s/.test(rawLine)
     const inlineHeading = Boolean(
-      separatorMatch && !indented && separatorMatch[1].split(/\s+/).length <= 10 && /^[A-Z0-9]/.test(separatorMatch[1]),
+      separatorMatch &&
+        !indented &&
+        separatorLabel.split(/\s+/).length <= 10 &&
+        !/\.$/.test(separatorLabel.trim()) &&
+        /^[A-Z0-9]/.test(separatorLabel),
     )
 
     if (
@@ -259,8 +306,14 @@ function parseExperience(block: string): ExperienceEntry[] {
     const roleLine = /(engineer|developer|intern|analyst|designer|consultant|manager|associate|trainee|scientist|architect|lead|specialist)/i.test(line)
     if (!isBullet && (roleLine || dateMatch) && line.length < 140) {
       flush()
-      const withoutDates = line.replace(dateMatch?.[0] ?? '', '').replace(/[|,–-]\s*$/, '').trim()
-      const parts = withoutDates.split(/\s*[|–—]\s*|\s+at\s+|\s*,\s*/).map((p) => p.trim()).filter(Boolean)
+      const withoutDates = line
+        .replace(dateMatch?.[0] ?? '', '')
+        .replace(/\(\s*\)/g, ' ')
+        .trim()
+      const parts = withoutDates
+        .split(/\s*[|–—]\s*|\s+at\s+|\s*,\s*/)
+        .map((part) => part.replace(/^[\s(\[,;]+|[\s(\[,;:-]+$/g, '').trim())
+        .filter(Boolean)
       current = {
         role: parts[0]?.slice(0, 100),
         company: parts[1]?.slice(0, 100),

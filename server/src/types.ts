@@ -6,7 +6,9 @@ declare global {
   namespace Express {
     interface Request {
       user?: Row
-      authProvider?: 'local' | 'supabase'
+      authProvider?: 'local' | 'supabase' | 'google'
+      /** Populated by requireAdmin after a server-side role check. */
+      adminProfile?: Row
     }
   }
 }

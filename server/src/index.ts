@@ -17,6 +17,7 @@ import jobRoutes from './routes/job.js'
 import interviewRoutes from './routes/interview.js'
 import reportRoutes from './routes/report.js'
 import coachRoutes from './routes/coach.js'
+import adminRoutes from './routes/admin.js'
 import fileRoutes from './routes/files.js'
 import metaRoutes from './routes/meta.js'
 
@@ -64,6 +65,7 @@ export async function createApp() {
   app.use('/api/files', fileRoutes)
   app.use('/api', reportRoutes) // /api/interviews/:id/report, /api/dashboard, /api/progress, /api/reports/:id
   app.use('/api/coach', coachRoutes)
+  app.use('/api/admin', adminRoutes)
   app.use('/api', metaRoutes) // /api/health, /api/meta
 
   app.use('/api', (_req, _res, next) => next(ApiError.notFound('That API endpoint does not exist.')))

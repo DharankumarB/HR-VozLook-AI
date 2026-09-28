@@ -619,7 +619,7 @@ function resumeAnchored(ctx: QuestionContext, difficulty: Difficulty): Generated
       question:
         difficulty === 'easy'
           ? `You mentioned ${label}. What were you responsible for day to day?`
-          : `At ${label}, which technical decision are you most proud of, and what alternatives did you consider?`,
+          : `In your role as ${label}, which technical decision are you most proud of, and what alternatives did you consider?`,
       type: 'resume',
       difficulty,
       expected_topics: ['responsibilities', 'technical decisions', 'impact', 'collaboration'],

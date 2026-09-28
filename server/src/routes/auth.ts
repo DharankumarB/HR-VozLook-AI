@@ -5,7 +5,11 @@ import type { Row } from '../db/store.js'
 import { ApiError, asyncHandler } from '../lib/errors.js'
 import { hashPassword, passwordProblems, verifyPassword } from '../auth/passwords.js'
 import { createResetToken, sha256, signSession } from '../auth/tokens.js'
-import { requireAuth } from '../auth/middleware.js'
+import { requireActiveAccount, requireAuth } from '../auth/middleware.js'
+import { accountStatus, ensureProfileForUser, publicUser, roleOf } from '../auth/roles.js'
+import { googleAuthStatus, verifyGoogleIdToken } from '../auth/google.js'
+import { DEFAULT_LANGUAGE, isSupportedLanguage } from '../ai/languages.js'
+import { recordAdminAction } from '../services/admin.js'
 import { env } from '../env.js'
 
 const router = Router()
@@ -24,23 +28,34 @@ const loginSchema = z.object({
   password: z.string().min(1, 'Enter your password'),
 })
 
-async function ensureProfile(user: Row, fullName?: string | null): Promise<Row> {
-  const store = getStore()
-  const existing = await store.findOne<Row>('profiles', { where: { user_id: user.id } })
-  if (existing) return existing
-  return store.insert('profiles', {
-    user_id: user.id,
-    full_name: fullName?.trim() || String(user.email).split('@')[0],
-    email: user.email,
-    onboarding_completed: 0,
+/**
+ * Sessions are signed tokens; identity and role always come from the database afterwards, so a token
+ * can never be used to claim administrator rights.
+ */
+function sessionPayload(user: Row, profile: Row, provider: 'local' | 'google' = 'local') {
+  return {
+    token: signSession({ sub: String(user.id), email: String(user.email), provider }),
+    user: publicUser(user, profile),
+    profile,
+    redirect_to: roleOf(profile) === 'admin' ? '/admin' : '/dashboard',
+  }
+}
+
+/** Records an administrator sign-in in the audit log (user sign-ins are not audited). */
+async function auditAdminLogin(user: Row, profile: Row, method: string) {
+  if (roleOf(profile) !== 'admin') return
+  await recordAdminAction({
+    admin_user_id: String(user.id),
+    admin_email: String(user.email),
+    action: 'admin_login',
+    target_type: 'session',
+    target_id: method,
   })
 }
 
-function sessionPayload(user: Row, profile: Row) {
-  return {
-    token: signSession({ sub: String(user.id), email: String(user.email), provider: 'local' }),
-    user: { id: user.id, email: user.email, created_at: user.created_at },
-    profile,
+function assertActive(profile: Row) {
+  if (accountStatus(profile) === 'disabled') {
+    throw new ApiError(403, 'This account has been disabled. Contact VozLook Studios support if you believe this is a mistake.', 'account_disabled')
   }
 }
 
@@ -60,7 +75,9 @@ router.post(
       password_hash: await hashPassword(body.password),
       auth_provider: 'password',
     })
-    const profile = await ensureProfile(user, body.fullName)
+    const profile = await ensureProfileForUser(user, body.fullName)
+    assertActive(profile)
+    await auditAdminLogin(user, profile, 'password_signup')
     res.status(201).json(sessionPayload(user, profile))
   }),
 )
@@ -74,7 +91,9 @@ router.post(
     const ok = user ? await verifyPassword(body.password, String(user.password_hash ?? '')) : false
     if (!user || !ok) throw new ApiError(401, 'That email and password combination is not correct.', 'invalid_credentials')
 
-    const profile = await ensureProfile(user)
+    const profile = await ensureProfileForUser(user)
+    assertActive(profile)
+    await auditAdminLogin(user, profile, 'password_login')
     res.json(sessionPayload(user, profile))
   }),
 )
@@ -91,12 +110,81 @@ router.get(
   '/me',
   requireAuth,
   asyncHandler(async (req, res) => {
-    const profile = await ensureProfile(req.user!)
+    const profile = await ensureProfileForUser(req.user!)
+    assertActive(profile)
     res.json({
-      user: { id: req.user!.id, email: req.user!.email, created_at: req.user!.created_at },
+      user: publicUser(req.user!, profile),
       profile,
       provider: req.authProvider ?? 'local',
+      redirect_to: roleOf(profile) === 'admin' ? '/admin' : '/dashboard',
+      admin: { surface: '/admin', can_access: roleOf(profile) === 'admin' },
     })
+  }),
+)
+
+/**
+ * Google Sign-In.
+ *
+ * The browser posts the Google ID token it received from Google Identity Services; the server verifies
+ * the signature, issuer, audience and expiry before trusting the identity inside it. Existing accounts
+ * with the same email are linked (never duplicated), and admin provisioning still happens on the
+ * server side only.
+ */
+router.post(
+  '/google',
+  asyncHandler(async (req, res) => {
+    const body = z.object({ credential: z.string().min(20).max(5000) }).parse(req.body ?? {})
+    if (!googleAuthStatus().configured) {
+      throw new ApiError(503, 'Google Sign-In is not configured on this deployment. Use email and password, or ask the administrator to set GOOGLE_CLIENT_ID.', 'google_not_configured')
+    }
+
+    const identity = await verifyGoogleIdToken(body.credential)
+    if (!identity.emailVerified) {
+      throw new ApiError(400, 'That Google account has not verified its email address.', 'google_email_unverified')
+    }
+
+    const store = getStore()
+    const existing = await store.findOne<Row>('users', { where: { email: identity.email } })
+    const user =
+      existing ??
+      ((await store.insert('users', {
+        email: identity.email,
+        password_hash: '',
+        auth_provider: 'google',
+      })) as Row)
+
+    if (existing && existing.auth_provider === 'password' && existing.password_hash) {
+      // Linking a Google identity to an existing password account: keep both sign-in paths working.
+      await store.updateById('users', String(existing.id), { auth_provider: 'password,google' })
+    }
+
+    const profile = await ensureProfileForUser({ ...user, auth_provider: 'google' }, identity.name ?? null)
+    if (profile.avatar_url == null && identity.picture) {
+      await store.updateById('profiles', String(profile.id), { avatar_url: identity.picture })
+      profile.avatar_url = identity.picture
+    }
+    assertActive(profile)
+
+    await auditAdminLogin(user, profile, 'google_login')
+    res.status(existing ? 200 : 201).json({ ...sessionPayload(user, profile, 'google'), is_new_account: !existing })
+  }),
+)
+
+/** Language preference (English only today; the column exists so more can be enabled later). */
+router.put(
+  '/language',
+  requireAuth,
+  requireActiveAccount,
+  asyncHandler(async (req, res) => {
+    const body = z.object({ language: z.string().min(2).max(8) }).parse(req.body ?? {})
+    if (!isSupportedLanguage(body.language)) {
+      throw ApiError.badRequest(`That language is not available yet. Supported languages: ${DEFAULT_LANGUAGE}.`, 'unsupported_language')
+    }
+    const store = getStore()
+    const profile = await store.findOne<Row>('profiles', { where: { user_id: req.user!.id } })
+    if (!profile) throw ApiError.notFound('Your profile could not be found.')
+    await store.updateById('profiles', String(profile.id), { preferred_language: body.language })
+    res.json({ ok: true, language: body.language })
   }),
 )
 
@@ -151,7 +239,7 @@ router.post(
     await store.updateById('password_resets', String(reset.id), { used_at: new Date().toISOString() })
 
     const user = await store.findById<Row>('users', String(reset.user_id))
-    const profile = user ? await ensureProfile(user) : null
+    const profile = user ? await ensureProfileForUser(user) : null
     res.json({ ok: true, message: 'Password updated. You can sign in with your new password.', session: user && profile ? sessionPayload(user, profile) : null })
   }),
 )

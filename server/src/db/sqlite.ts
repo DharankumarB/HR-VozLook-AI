@@ -75,6 +75,9 @@ CREATE TABLE IF NOT EXISTS profiles (
   company TEXT,
   experience_level TEXT,
   preferred_mode TEXT,
+  preferred_language TEXT DEFAULT 'en',
+  role TEXT DEFAULT 'user',
+  status TEXT DEFAULT 'active',
   onboarding_completed INTEGER DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -131,6 +134,7 @@ CREATE TABLE IF NOT EXISTS interview_questions (
   resume_anchor TEXT,
   is_follow_up INTEGER DEFAULT 0,
   parent_question_id TEXT,
+  generation TEXT,
   created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS interview_answers (
@@ -200,7 +204,31 @@ CREATE TABLE IF NOT EXISTS interview_progress (
 CREATE INDEX IF NOT EXISTS idx_interviews_user ON interviews(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_questions_interview ON interview_questions(interview_id, question_number);
 CREATE INDEX IF NOT EXISTS idx_answers_interview ON interview_answers(interview_id);
+CREATE TABLE IF NOT EXISTS admin_logs (
+  id TEXT PRIMARY KEY,
+  admin_user_id TEXT NOT NULL,
+  admin_email TEXT,
+  action TEXT NOT NULL,
+  target_type TEXT,
+  target_id TEXT,
+  metadata TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS system_settings (
+  id TEXT PRIMARY KEY,
+  key TEXT NOT NULL UNIQUE,
+  value TEXT,
+  updated_by TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 CREATE INDEX IF NOT EXISTS idx_progress_user ON interview_progress(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_admin_logs_admin ON admin_logs(admin_user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_admin_logs_action ON admin_logs(action, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_interviews_status ON interviews(status, completed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_interviews_user_status ON interviews(user_id, status);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_resumes_user ON resumes(user_id, created_at DESC);
 `
 
 /**

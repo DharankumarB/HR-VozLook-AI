@@ -77,6 +77,8 @@ export interface GeneratedQuestion {
   resume_anchor?: string | null
   parent_key?: string | null
   is_follow_up?: boolean
+  /** Which engine produced this question (surfaced in admin question audits). */
+  engine?: string
 }
 
 export interface CoverageItem {
@@ -136,6 +138,21 @@ export interface QuestionContext {
   mode: InterviewMode
   /** Candidate-selected focus areas from the interview setup screen (highest priority topics). */
   focusAreas?: string[]
+  /** Interviewer persona id (see ai/personas.ts). */
+  persona?: string
+  /** Language code the interview is conducted in (see ai/languages.ts). */
+  language?: string
+  /** Question blueprint produced by the pipeline (skills/anchors the question should target). */
+  blueprint?: {
+    target_type: QuestionType
+    focus_skills: string[]
+    resume_anchors: string[]
+    must_cover_from_job: string[]
+    min_difficulty: 'easy' | 'medium' | 'hard'
+    rationale: string
+  }
+  /** Validator complaints from rejected candidates, fed back so the provider can correct itself. */
+  validationFeedback?: string[]
   resume: ResumeAnalysis | null
   job: JobAnalysis | null
   askedQuestions: string[]

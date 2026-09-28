@@ -41,6 +41,12 @@ create table if not exists public.profiles (
   company text,
   experience_level text,
   preferred_mode text,
+  -- English ships today; the column exists so more languages can be enabled without a migration.
+  preferred_language text not null default 'en',
+  -- 'user' | 'admin'. Enforced by RLS + the backend: a user can never promote themselves.
+  role text not null default 'user' check (role in ('user', 'admin')),
+  -- 'active' | 'disabled'. Administrators can disable an account server-side only.
+  status text not null default 'active' check (status in ('active', 'disabled')),
   onboarding_completed boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -101,6 +107,9 @@ create table if not exists public.interview_questions (
   resume_anchor text,
   is_follow_up boolean not null default false,
   parent_question_id uuid,
+  -- Audit record of the generation pipeline: engine, attempts, validation score/checks, rejected
+  -- drafts and the blueprint the question was built from.
+  generation jsonb,
   created_at timestamptz not null default now()
 );
 
@@ -172,6 +181,29 @@ create table if not exists public.interview_progress (
   created_at timestamptz not null default now()
 );
 
+-- Administrator audit trail. Every admin login, user view, interview view, report view, account
+-- action and settings change is recorded here. Readable by administrators only.
+create table if not exists public.admin_logs (
+  id uuid primary key default gen_random_uuid(),
+  admin_user_id uuid not null references public.users(id) on delete cascade,
+  admin_email text,
+  action text not null,
+  target_type text,
+  target_id text,
+  metadata jsonb,
+  created_at timestamptz not null default now()
+);
+
+-- Platform configuration edited from /admin/settings. Sensitive values are never stored here.
+create table if not exists public.system_settings (
+  id uuid primary key default gen_random_uuid(),
+  key text not null unique,
+  value jsonb,
+  updated_by uuid references public.users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 /* --------------------------------- indexes -------------------------------- */
 
 create index if not exists idx_resumes_user on public.resumes(user_id, created_at desc);
@@ -181,6 +213,12 @@ create index if not exists idx_questions_interview on public.interview_questions
 create index if not exists idx_answers_interview on public.interview_answers(interview_id);
 create index if not exists idx_evaluations_interview on public.answer_evaluations(interview_id);
 create index if not exists idx_progress_user on public.interview_progress(user_id, created_at);
+create index if not exists idx_admin_logs_created on public.admin_logs(created_at desc);
+create index if not exists idx_admin_logs_admin on public.admin_logs(admin_user_id, created_at desc);
+create index if not exists idx_interviews_status on public.interviews(status);
+create index if not exists idx_interviews_user_status on public.interviews(user_id, status);
+create index if not exists idx_profiles_email on public.profiles(email);
+create index if not exists idx_resumes_user_active on public.resumes(user_id, is_active);
 
 /* ------------------------------ updated_at -------------------------------- */
 
@@ -194,7 +232,7 @@ end $$;
 do $$
 declare t text;
 begin
-  foreach t in array array['users','profiles','resumes','job_descriptions','interviews','interview_reports']
+  foreach t in array array['users','profiles','resumes','job_descriptions','interviews','interview_reports','system_settings']
   loop
     execute format('drop trigger if exists set_updated_at on public.%I', t);
     execute format('create trigger set_updated_at before update on public.%I for each row execute function public.touch_updated_at()', t);
@@ -221,6 +259,8 @@ alter table public.interview_answers  enable row level security;
 alter table public.answer_evaluations enable row level security;
 alter table public.interview_reports  enable row level security;
 alter table public.interview_progress enable row level security;
+alter table public.admin_logs         enable row level security;
+alter table public.system_settings    enable row level security;
 
 -- users: a signed-in user may read/update only their own account row.
 drop policy if exists users_select_own on public.users;
@@ -243,6 +283,56 @@ create policy profiles_update_own on public.profiles for update using (user_id =
 drop policy if exists profiles_delete_own on public.profiles;
 create policy profiles_delete_own on public.profiles for delete using (user_id = public.current_user_id());
 
+-- ---------------------------------------------------------------------------
+-- Administrator checks are role-based and always evaluated in the database.
+-- There is no email comparison anywhere in the schema or the client.
+-- ---------------------------------------------------------------------------
+create or replace function public.is_admin() returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.profiles
+    where user_id = public.current_user_id()
+      and role = 'admin'
+      and status = 'active'
+  )
+$$;
+
+create or replace function public.is_active_account() returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.profiles
+    where user_id = public.current_user_id()
+      and status = 'active'
+  )
+$$;
+
+-- A user may edit their own profile, but the role and status columns are removed from the
+-- client-facing UPDATE privilege entirely, so a self-promotion or self-reactivation is impossible
+-- even with a hand-crafted PostgREST request. Only the backend service role can change them.
+revoke update (role, status) on public.profiles from authenticated;
+revoke update (role, status) on public.profiles from anon;
+grant update (full_name, email, avatar_url, target_role, company, experience_level, preferred_mode,
+  preferred_language, onboarding_completed) on public.profiles to authenticated;
+
+-- Administrators may read every profile (the /admin/users table). Writes still go through the
+-- backend service role so that audit logging can never be bypassed.
+drop policy if exists profiles_admin_select on public.profiles;
+create policy profiles_admin_select on public.profiles for select using (public.is_admin());
+
+drop policy if exists users_admin_select on public.users;
+create policy users_admin_select on public.users for select using (public.is_admin());
+
+-- Audit log and settings: administrators read; only the backend (service role) writes.
+drop policy if exists admin_logs_admin_select on public.admin_logs;
+create policy admin_logs_admin_select on public.admin_logs for select using (public.is_admin());
+
+drop policy if exists system_settings_admin_select on public.system_settings;
+create policy system_settings_admin_select on public.system_settings for select using (public.is_admin());
+
+drop policy if exists system_settings_admin_update on public.system_settings;
+create policy system_settings_admin_update on public.system_settings for update
+  using (public.is_admin()) with check (public.is_admin());
+
 -- resumes
 drop policy if exists resumes_own on public.resumes;
 create policy resumes_own on public.resumes for all using (user_id = public.current_user_id()) with check (user_id = public.current_user_id());
@@ -253,7 +343,9 @@ create policy jobs_own on public.job_descriptions for all using (user_id = publi
 
 -- interviews
 drop policy if exists interviews_own on public.interviews;
-create policy interviews_own on public.interviews for all using (user_id = public.current_user_id()) with check (user_id = public.current_user_id());
+create policy interviews_own on public.interviews for all
+  using (user_id = public.current_user_id())
+  with check (user_id = public.current_user_id() and public.is_active_account());
 
 -- interview_progress
 drop policy if exists progress_own on public.interview_progress;
@@ -303,3 +395,27 @@ create policy storage_own_folder_update on storage.objects for update
 drop policy if exists storage_own_folder_delete on storage.objects;
 create policy storage_own_folder_delete on storage.objects for delete
   using (bucket_id in ('resumes', 'media') and (storage.foldername(name))[1] = public.current_user_id()::text);
+
+/* ------------------------- admin read-through policies -------------------- */
+-- Administrator reporting surfaces (users, interviews, reports, analytics) read other users' rows.
+-- These policies are additive to the owner policies above and still keyed on the admin role.
+drop policy if exists interviews_admin_select on public.interviews;
+create policy interviews_admin_select on public.interviews for select using (public.is_admin());
+
+drop policy if exists questions_admin_select on public.interview_questions;
+create policy questions_admin_select on public.interview_questions for select using (public.is_admin());
+
+drop policy if exists answers_admin_select on public.interview_answers;
+create policy answers_admin_select on public.interview_answers for select using (public.is_admin());
+
+drop policy if exists evaluations_admin_select on public.answer_evaluations;
+create policy evaluations_admin_select on public.answer_evaluations for select using (public.is_admin());
+
+drop policy if exists reports_admin_select on public.interview_reports;
+create policy reports_admin_select on public.interview_reports for select using (public.is_admin());
+
+drop policy if exists resumes_admin_select on public.resumes;
+create policy resumes_admin_select on public.resumes for select using (public.is_admin());
+
+drop policy if exists jobs_admin_select on public.job_descriptions;
+create policy jobs_admin_select on public.job_descriptions for select using (public.is_admin());
